@@ -135,6 +135,7 @@ export default function Certificates() {
         setHasSupabaseTable(false);
         const local = getLocalCerts();
         setCerts(local);
+        localStorage.setItem('certificates', JSON.stringify(local));
       } else {
         setHasSupabaseTable(true);
         const local = getLocalCerts();
@@ -145,6 +146,7 @@ export default function Certificates() {
           }
         });
         setCerts(merged);
+        localStorage.setItem('certificates', JSON.stringify(merged));
       }
     } catch (e) {
       console.warn('Network or Supabase error:', e);

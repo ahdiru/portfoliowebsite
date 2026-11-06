@@ -3,6 +3,7 @@ import { FileText, Code, Award, Globe, ArrowUpRight, Sparkles, GraduationCap, Bu
 import AOS from 'aos';
 import 'aos/dist/aos.css';
 import { useProfile } from "../utils/profileData";
+import { supabase } from "../supabase";
 
 // Memoized Header
 const Header = memo(({ name, caption }) => (
@@ -92,18 +93,52 @@ const AboutPage = () => {
   });
 
   useEffect(() => {
-    const updateStats = () => {
-      const storedProjects = JSON.parse(localStorage.getItem("projects") || "[]");
-      const storedCertificates = JSON.parse(localStorage.getItem("certificates") || "[]");
-      
+    const updateStats = async () => {
+      // 1. Projects Count (Supabase live + localStorage)
+      let projCount = 0;
+      try {
+        const storedProjects = JSON.parse(localStorage.getItem("projects") || "[]");
+        projCount = storedProjects.length;
+        const { data: projData } = await supabase.from("projects").select("id");
+        if (projData && projData.length > 0) {
+          projCount = projData.length;
+          localStorage.setItem("projects", JSON.stringify(projData));
+        }
+      } catch (e) {}
+
+      // 2. Certificates Count (Supabase live + localStorage)
+      let certCount = 0;
+      try {
+        const { data: certData, error: certErr } = await supabase.from("certificates").select("id");
+        const localCerts = JSON.parse(localStorage.getItem("portfolio_local_certificates") || "[]");
+        const legacyCerts = JSON.parse(localStorage.getItem("certificates") || "[]");
+
+        if (!certErr && certData) {
+          certCount = certData.length;
+          // Tambahkan item lokal yang belum ter-sinkron jika ada
+          localCerts.forEach((lc) => {
+            if (!certData.some((cd) => cd.id === lc.id)) {
+              certCount += 1;
+            }
+          });
+          localStorage.setItem("certificates", JSON.stringify(certData));
+        } else {
+          certCount = Math.max(localCerts.length, legacyCerts.length);
+        }
+      } catch (e) {
+        const localCerts = JSON.parse(localStorage.getItem("portfolio_local_certificates") || "[]");
+        const legacyCerts = JSON.parse(localStorage.getItem("certificates") || "[]");
+        certCount = Math.max(localCerts.length, legacyCerts.length);
+      }
+
       const startDate = new Date("2023-11-01");
       const today = new Date();
       const experience = today.getFullYear() - startDate.getFullYear() -
         (today < new Date(today.getFullYear(), startDate.getMonth(), startDate.getDate()) ? 1 : 0);
 
       setStats({
-        totalProjects: storedProjects.length || 6,
-        totalCertificates: storedCertificates.length || 5,
+        totalProjects: projCount || 6,
+        totalCertificates: certCount,
         YearExperience: Math.max(experience, 2)
       });
     };
@@ -112,10 +147,12 @@ const AboutPage = () => {
 
     window.addEventListener('storage', updateStats);
     window.addEventListener('portfolioDataUpdated', updateStats);
+    window.addEventListener('portfolioCertificatesUpdated', updateStats);
 
     return () => {
       window.removeEventListener('storage', updateStats);
       window.removeEventListener('portfolioDataUpdated', updateStats);
+      window.removeEventListener('portfolioCertificatesUpdated', updateStats);
     };
   }, []);
 
