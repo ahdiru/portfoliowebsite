@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from "../../supabase";
-import { Award, Upload, Trash2, ImageIcon, Plus, FileText, ExternalLink, Download } from 'lucide-react';
+import { Award, Upload, Trash2, ImageIcon, Plus, FileText, ExternalLink, Database } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { isPdfUrl } from '../../components/Certificate';
 
@@ -15,6 +15,24 @@ const SkeletonCard = () => (
     <div className="w-full aspect-[16/11.5] bg-[#EDE7DA] animate-pulse rounded-xl" />
   </div>
 );
+
+const getLocalCerts = () => {
+  try {
+    const raw = localStorage.getItem('portfolio_local_certificates');
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+const saveLocalCerts = (certs) => {
+  try {
+    localStorage.setItem('portfolio_local_certificates', JSON.stringify(certs));
+    window.dispatchEvent(new Event('portfolioCertificatesUpdated'));
+  } catch (e) {
+    console.error(e);
+  }
+};
 
 const CertCard = ({ cert, onDelete }) => {
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -94,24 +112,46 @@ export default function Certificates() {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [hasSupabaseTable, setHasSupabaseTable] = useState(true);
 
   const fetchCerts = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.from('certificates').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('certificates')
+        .select('*')
+        .order('created_at', { ascending: false });
+
       if (error) {
-        console.warn('Supabase fetch error, fallback to local storage if available:', error);
+        setHasSupabaseTable(false);
+        const local = getLocalCerts();
+        setCerts(local);
+      } else {
+        setHasSupabaseTable(true);
+        // Merge Supabase + local if any
+        const local = getLocalCerts();
+        const merged = [...(data || [])];
+        local.forEach((loc) => {
+          if (!merged.some((m) => m.id === loc.id)) {
+            merged.push(loc);
+          }
+        });
+        setCerts(merged);
       }
-      setCerts(data || []);
     } catch (e) {
-      console.error(e);
-      setCerts([]);
+      console.warn('Network or Supabase error:', e);
+      setHasSupabaseTable(false);
+      setCerts(getLocalCerts());
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { fetchCerts(); }, []);
+  useEffect(() => { 
+    fetchCerts(); 
+    window.addEventListener('portfolioCertificatesUpdated', fetchCerts);
+    return () => window.removeEventListener('portfolioCertificatesUpdated', fetchCerts);
+  }, []);
 
   const handleFile = (f) => {
     if (!f) return;
@@ -130,56 +170,94 @@ export default function Certificates() {
     setUploading(true);
 
     try {
-      const fileExt = file.name.split('.').pop();
-      const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const fileName = `cert-${Date.now()}-${sanitizedName}`;
-
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('certificate-images')
-        .upload(fileName, file, {
-          contentType: file.type || (isPdf ? 'application/pdf' : 'image/jpeg'),
-          upsert: true
-        });
-
       let publicUrl = '';
+      let isUploadedToCloud = false;
 
-      if (uploadError) {
-        console.warn('Storage upload error, attempting base64 fallback:', uploadError);
-        // Fallback: convert to base64 data URI if bucket issue
+      // 1. Coba upload ke Supabase Storage jika bucket tersedia
+      try {
+        const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+        const fileName = `cert-${Date.now()}-${sanitizedName}`;
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('certificate-images')
+          .upload(fileName, file, {
+            contentType: file.type || (isPdf ? 'application/pdf' : 'image/jpeg'),
+            upsert: true
+          });
+
+        if (!uploadError && uploadData) {
+          const { data: urlData } = supabase.storage
+            .from('certificate-images')
+            .getPublicUrl(fileName);
+          publicUrl = urlData.publicUrl;
+          isUploadedToCloud = true;
+        }
+      } catch (err) {
+        console.warn('Supabase storage upload failed, will fallback to data url:', err);
+      }
+
+      // Jika storage belum dibuat, buat Data URL Base64
+      if (!publicUrl) {
         const reader = new FileReader();
         publicUrl = await new Promise((resolve) => {
           reader.onload = () => resolve(reader.result);
           reader.readAsDataURL(file);
         });
+      }
+
+      // 2. Coba simpan ke Supabase DB
+      let savedToDb = false;
+      try {
+        const { error: insertError } = await supabase
+          .from('certificates')
+          .insert({ Img: publicUrl });
+
+        if (!insertError) {
+          savedToDb = true;
+          setHasSupabaseTable(true);
+        }
+      } catch (e) {
+        console.warn('Supabase insert failed:', e);
+      }
+
+      // 3. Jika DB belum dibuat tabelnya, simpan ke Local Storage
+      if (!savedToDb) {
+        const localList = getLocalCerts();
+        const newLocalCert = {
+          id: `local_${Date.now()}`,
+          Img: publicUrl,
+          created_at: new Date().toISOString()
+        };
+        const updated = [newLocalCert, ...localList];
+        saveLocalCerts(updated);
+        setCerts(updated);
+
+        Swal.fire({
+          icon: 'success',
+          title: 'Sertifikat Tersimpan (Lokal)',
+          text: 'Berkas berhasil disimpan. Jalankan skrip SQL di Supabase SQL Editor agar otomatis tersimpan di Cloud Database.',
+          confirmButtonColor: '#1E3B2F'
+        });
       } else {
-        const { data: urlData } = supabase.storage.from('certificate-images').getPublicUrl(fileName);
-        publicUrl = urlData.publicUrl;
+        Swal.fire({
+          icon: 'success',
+          title: 'Sertifikat Berhasil Dipublikasikan!',
+          text: isPdf ? 'Dokumen PDF sertifikat telah terhubung ke cloud.' : 'Foto sertifikat telah terhubung ke cloud.',
+          confirmButtonColor: '#1E3B2F',
+          timer: 1800
+        });
+        fetchCerts();
       }
-
-      const { error: insertError } = await supabase.from('certificates').insert({ Img: publicUrl });
-
-      if (insertError) {
-        throw insertError;
-      }
-
-      Swal.fire({
-        icon: 'success',
-        title: 'Sertifikat Berhasil Diunggah!',
-        text: isPdf ? 'Dokumen PDF sertifikat telah dipublikasikan.' : 'Foto sertifikat telah dipublikasikan.',
-        confirmButtonColor: '#1E3B2F',
-        timer: 1800
-      });
 
       setFile(null); 
       setPreview(null);
       setIsPdf(false);
-      fetchCerts();
     } catch (err) {
       console.error('Upload failed:', err);
       Swal.fire({
         icon: 'error',
-        title: 'Gagal Mengunggah',
-        text: err.message || 'Terjadi kesalahan saat mengunggah berkas sertifikat.',
+        title: 'Gagal Memproses Berkas',
+        text: err.message || 'Terjadi kesalahan saat memproses berkas sertifikat.',
         confirmButtonColor: '#1E3B2F'
       });
     } finally {
@@ -190,7 +268,7 @@ export default function Certificates() {
   const deleteCert = async (id) => {
     const result = await Swal.fire({
       title: 'Hapus sertifikat ini?',
-      text: 'Berkas sertifikat akan dihapus permanen dari portofolio.',
+      text: 'Berkas sertifikat akan dihapus dari portofolio.',
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#B4442E',
@@ -200,24 +278,26 @@ export default function Certificates() {
     });
 
     if (result.isConfirmed) {
-      const { error } = await supabase.from('certificates').delete().eq('id', id);
-      if (!error) {
-        Swal.fire({
-          icon: 'success',
-          title: 'Terhapus',
-          text: 'Sertifikat berhasil dihapus.',
-          timer: 1400,
-          showConfirmButton: false
-        });
-        fetchCerts();
-      } else {
-        Swal.fire({
-          icon: 'error',
-          title: 'Gagal Menghapus',
-          text: error.message,
-          confirmButtonColor: '#1E3B2F'
-        });
+      // Hapus dari local jika ada
+      const local = getLocalCerts();
+      const updatedLocal = local.filter((c) => c.id !== id);
+      saveLocalCerts(updatedLocal);
+
+      // Coba hapus dari Supabase
+      try {
+        await supabase.from('certificates').delete().eq('id', id);
+      } catch (e) {
+        console.warn(e);
       }
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Terhapus',
+        text: 'Sertifikat berhasil dihapus.',
+        timer: 1400,
+        showConfirmButton: false
+      });
+      fetchCerts();
     }
   };
 
@@ -235,6 +315,23 @@ export default function Certificates() {
           </p>
         </div>
       </div>
+
+      {/* Supabase Notice Banner if table not found */}
+      {!hasSupabaseTable && (
+        <div className="p-4 rounded-2xl bg-[#EDE7DA] border border-[#D8CFBE] flex items-start gap-3">
+          <div className="p-2 rounded-xl bg-[#1E3B2F] text-[#F5F0E6] shrink-0 mt-0.5">
+            <Database className="w-4 h-4 text-[#C8B48A]" />
+          </div>
+          <div className="space-y-1">
+            <h4 className="text-xs font-mono font-bold text-[#1E3B2F] uppercase">
+              Sinkronisasi Cloud Supabase Diperlukan
+            </h4>
+            <p className="text-xs text-[#5A6650]">
+              Tabel <code className="bg-[#FFFFFF] px-1 py-0.5 rounded text-[#1E3B2F]">certificates</code> belum dibuat di Supabase SQL Editor. Sertifikat tetap dapat Anda unggah dan tampil normal via penyimpanan lokal. Untuk sinkronisasi cloud permanen, jalankan skrip SQL di Supabase Dashboard.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Upload Card */}
       <Card>
@@ -303,7 +400,7 @@ export default function Certificates() {
                   ) : (
                     <Upload className="w-3.5 h-3.5 text-[#C8B48A]" />
                   )}
-                  <span>{uploading ? 'Mengunggah...' : (isPdf ? 'Publikasikan Sertifikat PDF' : 'Publikasikan Sertifikat')}</span>
+                  <span>{uploading ? 'Memproses...' : (isPdf ? 'Publikasikan Sertifikat PDF' : 'Publikasikan Sertifikat')}</span>
                 </button>
               </div>
             </div>

@@ -95,7 +95,15 @@ export default function FullWidthTabs() {
       if (certificatesResponse.error) throw certificatesResponse.error;
 
       const projectData = projectsResponse.data || [];
-      const certificateData = certificatesResponse.data || [];
+      let certificateData = certificatesResponse.data || [];
+
+      try {
+        const localCerts = localStorage.getItem('portfolio_local_certificates');
+        if (localCerts) {
+          const parsed = JSON.parse(localCerts);
+          certificateData = [...certificateData, ...parsed.filter(p => !certificateData.some(c => c.id === p.id))];
+        }
+      } catch (e) {}
 
       setProjects(projectData);
       setCertificates(certificateData);
@@ -104,11 +112,17 @@ export default function FullWidthTabs() {
       localStorage.setItem("certificates", JSON.stringify(certificateData));
     } catch (error) {
       console.error("Error fetching data:", error);
+      try {
+        const localCerts = localStorage.getItem('portfolio_local_certificates');
+        if (localCerts) setCertificates(JSON.parse(localCerts));
+      } catch (e) {}
     }
   }, []);
 
   useEffect(() => {
     fetchData();
+    window.addEventListener('portfolioCertificatesUpdated', fetchData);
+    return () => window.removeEventListener('portfolioCertificatesUpdated', fetchData);
   }, [fetchData]);
 
   const handleChange = (event, newValue) => {
