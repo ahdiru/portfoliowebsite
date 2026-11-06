@@ -1,7 +1,7 @@
 # DESIGN_SYSTEM.md — Portfolio V5 Rebuild
 
 > Kontrak desain & arsitektur. Baca sebelum eksekusi apapun.
-> Repo referensi: https://github.com/EkiZR/Portofolio_V5
+> Repo: https://github.com/ahdiru/portfoliowebsite
 > Working dir: `/Users/macbook/Documents/AI AGENT/Antigravity/Front-End/Portofolio_V5-main`
 
 ---
