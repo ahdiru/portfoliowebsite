@@ -200,4 +200,14 @@ Hasil kompilasi produksi siap deploy akan tersimpan di dalam direktori `dist/`.
 - **Email**: ahmadjordan186@gmail.com
 - **Portofolio**: [bit.ly/Jordansportfolio](https://bit.ly/Jordansportfolio)
 
+---
+
+## 🙏 Credits & Acknowledgments
+
+Proyek ini dibangun dan dikustomisasi dengan basis fondasi dari repositori open-source:
+- **Original Repository**: [Portofolio_V5 by EkiZR](https://github.com/EkiZR/Portofolio_V5)
+- **Original Author**: [Eki Zulfar Rachman](https://github.com/EkiZR)
+
+Terima kasih atas fondasi kode open-source yang telah disediakan.
+
 ⭐ Jika proyek ini bermanfaat, jangan ragu untuk memberikan bintang pada repositori ini!
