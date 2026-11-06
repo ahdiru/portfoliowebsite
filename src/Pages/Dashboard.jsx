@@ -6,13 +6,15 @@ import Certificates from './dashboard/Certificates';
 import Comments from './dashboard/Comments';
 import ProfileSettings from './dashboard/ProfileSettings';
 import TechStackManager from './dashboard/TechStackManager';
-import { FolderGit2, Award, MessageSquare, LogOut, LayoutDashboard, Menu, ArrowUpRight, User, Code2 } from 'lucide-react';
+import DirectChannelsManager from './dashboard/DirectChannelsManager';
+import { FolderGit2, Award, MessageSquare, LogOut, LayoutDashboard, Menu, ArrowUpRight, User, Code2, Share2 } from 'lucide-react';
 import { useProfile } from '../utils/profileData';
 
 const NAV_ITEMS = [
   { to: 'projects', label: 'Projects', icon: FolderGit2 },
   { to: 'certificates', label: 'Certificates', icon: Award },
   { to: 'tech-stack', label: 'Tech Stack', icon: Code2 },
+  { to: 'direct-channels', label: 'Direct Channels', icon: Share2 },
   { to: 'comments', label: 'Comments', icon: MessageSquare },
   { to: 'profile', label: 'Profile & Display', icon: User },
 ];
@@ -142,6 +144,7 @@ export default function Dashboard() {
             <Route path="projects" element={<Projects />} />
             <Route path="certificates" element={<Certificates />} />
             <Route path="tech-stack" element={<TechStackManager />} />
+            <Route path="direct-channels" element={<DirectChannelsManager />} />
             <Route path="comments" element={<Comments />} />
             <Route path="profile" element={<ProfileSettings />} />
           </Routes>
