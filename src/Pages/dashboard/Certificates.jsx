@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from "../../supabase";
-import { Award, Upload, Trash2, ImageIcon, Plus, FileText, ExternalLink, Database } from 'lucide-react';
+import { Award, Upload, Trash2, Plus, FileText, ExternalLink, Database } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { isPdfUrl } from '../../components/Certificate';
 
@@ -41,32 +41,30 @@ const CertCard = ({ cert, onDelete }) => {
   return (
     <div className="bg-[#FFFFFF] border border-[#D8CFBE] rounded-2xl overflow-hidden shadow-xs hover:border-[#7F8C6A] hover:shadow-md transition-all group relative flex flex-col">
       {isPdf ? (
-        /* PDF Thumbnail */
-        <div className="w-full aspect-[16/11.5] bg-[#F5F0E6] flex flex-col items-center justify-center p-4 relative group-hover:bg-[#EDE7DA] transition-colors">
-          <div className="w-12 h-12 rounded-xl bg-[#1E3B2F] text-[#F5F0E6] flex items-center justify-center shadow-xs mb-2">
-            <FileText className="w-6 h-6 text-[#C8B48A]" />
-          </div>
-          <span className="text-xs font-mono font-bold text-[#1E3B2F] uppercase tracking-wider text-center">
-            PDF Document
-          </span>
-          <span className="text-[10px] text-[#5A6650] font-mono mt-0.5 truncate max-w-full px-2 text-center">
-            {cert.Img.split('/').pop().slice(0, 24)}...
-          </span>
+        /* Direct Live PDF Thumbnail Preview (Direct without clicking) */
+        <div className="relative w-full aspect-[16/11.5] bg-[#FFFFFF] overflow-hidden">
+          <iframe
+            src={`${cert.Img}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+            title="Pratinjau PDF Langsung"
+            className="w-full h-full pointer-events-none select-none bg-white"
+            style={{ border: "none" }}
+          />
 
-          <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-[#1E3B2F] text-[#F5F0E6] text-[9px] font-mono font-bold flex items-center gap-1 shadow-2xs">
+          {/* Top Badge */}
+          <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-[#1E3B2F] text-[#F5F0E6] text-[9px] font-mono font-bold flex items-center gap-1 shadow-xs pointer-events-none z-10">
             <Award className="w-2.5 h-2.5 text-[#C8B48A]" />
             <span>PDF</span>
           </div>
 
           {/* Action Overlay */}
-          <div className="absolute inset-0 bg-[#1E3B2F]/80 backdrop-blur-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center p-3 gap-2">
+          <div className="absolute inset-0 bg-[#1E3B2F]/80 backdrop-blur-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-center p-3 gap-2 z-20">
             <a
               href={cert.Img}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#FFFFFF] text-[#1E3B2F] hover:bg-[#EDE7DA] text-xs font-mono font-semibold w-full justify-center transition-colors shadow-xs"
             >
-              <ExternalLink className="w-3.5 h-3.5 text-[#7F8C6A]" /> Buka PDF
+              <ExternalLink className="w-3.5 h-3.5 text-[#7F8C6A]" /> Buka PDF Tab Baru
             </a>
             <button
               onClick={() => onDelete(cert.id)}
@@ -128,7 +126,6 @@ export default function Certificates() {
         setCerts(local);
       } else {
         setHasSupabaseTable(true);
-        // Merge Supabase + local if any
         const local = getLocalCerts();
         const merged = [...(data || [])];
         local.forEach((loc) => {
@@ -158,11 +155,8 @@ export default function Certificates() {
     setFile(f);
     const isFilePdf = f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf');
     setIsPdf(isFilePdf);
-    if (!isFilePdf) {
-      setPreview(URL.createObjectURL(f));
-    } else {
-      setPreview(null);
-    }
+    // Create preview object URL for both PDF and images
+    setPreview(URL.createObjectURL(f));
   };
 
   const uploadCertificate = async () => {
@@ -278,12 +272,10 @@ export default function Certificates() {
     });
 
     if (result.isConfirmed) {
-      // Hapus dari local jika ada
       const local = getLocalCerts();
       const updatedLocal = local.filter((c) => c.id !== id);
       saveLocalCerts(updatedLocal);
 
-      // Coba hapus dari Supabase
       try {
         await supabase.from('certificates').delete().eq('id', id);
       } catch (e) {
@@ -344,29 +336,35 @@ export default function Certificates() {
             onDragOver={e => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={e => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]); }}
-            className={`flex flex-col items-center justify-center w-full min-h-[160px] rounded-xl border-2 border-dashed cursor-pointer transition-all duration-200 ${
+            className={`flex flex-col items-center justify-center w-full min-h-[170px] rounded-xl border-2 border-dashed cursor-pointer transition-all duration-200 overflow-hidden ${
               dragOver ? 'border-[#1E3B2F] bg-[#EDE7DA]' : 'border-[#D8CFBE] bg-[#F5F0E6] hover:border-[#1E3B2F] hover:bg-[#EDE7DA]/50'
             }`}
           >
             {preview ? (
-              <img src={preview} alt="preview" className="max-h-40 object-contain rounded-lg p-2" />
-            ) : isPdf && file ? (
-              <div className="flex flex-col items-center justify-center p-6 text-center">
-                <div className="w-12 h-12 rounded-2xl bg-[#1E3B2F] text-[#F5F0E6] flex items-center justify-center shadow-xs mb-2">
-                  <FileText className="w-6 h-6 text-[#C8B48A]" />
+              isPdf ? (
+                /* Direct PDF Live Preview in Dropzone */
+                <div className="w-full max-w-sm h-48 my-2 rounded-xl overflow-hidden border border-[#D8CFBE] shadow-xs relative bg-white">
+                  <iframe
+                    src={`${preview}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+                    title="Live PDF Preview"
+                    className="w-full h-full pointer-events-none select-none bg-white"
+                    style={{ border: "none" }}
+                  />
+                  <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-[#1E3B2F] text-[#F5F0E6] text-[10px] font-mono font-semibold flex items-center gap-1 shadow-2xs">
+                    <FileText className="w-3 h-3 text-[#C8B48A]" />
+                    <span>Pratinjau PDF Langsung</span>
+                  </div>
                 </div>
-                <p className="text-sm font-bold text-[#1E3B2F] font-mono">{file.name}</p>
-                <p className="text-xs text-[#5A6650] font-mono mt-0.5">
-                  {(file.size / (1024 * 1024)).toFixed(2)} MB • Dokumen PDF Terdeteksi
-                </p>
-              </div>
+              ) : (
+                <img src={preview} alt="preview" className="max-h-44 object-contain rounded-lg p-2" />
+              )
             ) : (
               <div className="text-center space-y-2 p-6">
                 <div className="w-10 h-10 rounded-full bg-[#EDE7DA] border border-[#D8CFBE] flex items-center justify-center mx-auto text-[#1E3B2F]">
                   <Upload className="w-5 h-5 text-[#7F8C6A]" />
                 </div>
                 <p className="text-sm font-medium text-[#1E3B2F]">Tarik & lepas atau klik untuk memilih berkas</p>
-                <p className="text-xs text-[#5A6650] font-mono">Mendukung berkas Gambar (PNG, JPG, WEBP) & Dokumen PDF</p>
+                <p className="text-xs text-[#5A6650] font-mono">Pratinjau langsung untuk berkas Gambar (PNG, JPG, WEBP) & Dokumen PDF</p>
               </div>
             )}
             <input 
@@ -380,8 +378,11 @@ export default function Certificates() {
           {file && (
             <div className="flex items-center justify-between gap-3 flex-wrap pt-2 border-t border-[#D8CFBE]">
               <div className="flex items-center gap-2 min-w-0">
-                {isPdf ? <FileText className="w-4 h-4 text-[#7F8C6A] shrink-0" /> : <ImageIcon className="w-4 h-4 text-[#7F8C6A] shrink-0" />}
+                <FileText className="w-4 h-4 text-[#7F8C6A] shrink-0" />
                 <p className="text-xs font-mono text-[#5A6650] truncate">{file.name}</p>
+                <span className="text-[10px] font-mono text-[#7F8C6A] bg-[#EDE7DA] px-2 py-0.5 rounded-full">
+                  {(file.size / (1024 * 1024)).toFixed(2)} MB
+                </span>
               </div>
               <div className="flex gap-2 shrink-0">
                 <button 

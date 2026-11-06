@@ -51,7 +51,7 @@ const Certificate = ({ ImgSertif }) => {
 					},
 				}}
 			>
-				{/* Content: PDF or Image */}
+				{/* Content: Direct PDF Preview or Image */}
 				{isPdf ? (
 					<Box
 						onClick={handleOpen}
@@ -60,26 +60,25 @@ const Certificate = ({ ImgSertif }) => {
 							width: "100%",
 							aspectRatio: "16/11.5",
 							backgroundColor: "#F5F0E6",
-							display: "flex",
-							flexDirection: "column",
-							alignItems: "center",
-							justifyContent: "center",
-							p: 3,
+							overflow: "hidden",
 							cursor: "pointer",
 						}}
 					>
-						<div className="w-14 h-14 rounded-2xl bg-[#1E3B2F] text-[#F5F0E6] flex items-center justify-center shadow-xs mb-2 transition-transform duration-300">
-							<FileText className="w-7 h-7 text-[#C8B48A]" />
-						</div>
-						<span className="text-xs font-mono font-bold text-[#1E3B2F] uppercase tracking-wider text-center">
-							PDF Certificate
-						</span>
-						<span className="text-[11px] text-[#5A6650] font-mono mt-1 text-center truncate max-w-full px-2">
-							Klik untuk Pratinjau Dokumen
-						</span>
+						{/* Direct PDF Embed View (No click needed to see) */}
+						<iframe
+							src={`${ImgSertif}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+							title="Pratinjau Langsung PDF Sertifikat"
+							className="w-full h-full pointer-events-none select-none"
+							style={{
+								border: "none",
+								width: "100%",
+								height: "100%",
+								backgroundColor: "#FFFFFF",
+							}}
+						/>
 
-						{/* PDF Badge */}
-						<div className="absolute top-3 right-3 px-2 py-0.5 rounded-full bg-[#1E3B2F] text-[#F5F0E6] text-[10px] font-mono font-semibold flex items-center gap-1 shadow-2xs">
+						{/* PDF Badge Indicator */}
+						<div className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full bg-[#1E3B2F] text-[#F5F0E6] text-[10px] font-mono font-bold flex items-center gap-1 shadow-xs pointer-events-none z-10">
 							<Award className="w-3 h-3 text-[#C8B48A]" />
 							<span>PDF</span>
 						</div>
@@ -128,7 +127,7 @@ const Certificate = ({ ImgSertif }) => {
 						right: 0,
 						bottom: 0,
 						opacity: 0,
-						backgroundColor: "rgba(30, 59, 47, 0.4)",
+						backgroundColor: "rgba(30, 59, 47, 0.45)",
 						backdropFilter: "blur(2px)",
 						transition: "all 0.3s ease",
 						cursor: "pointer",
@@ -165,13 +164,13 @@ const Certificate = ({ ImgSertif }) => {
 								textShadow: "0 2px 4px rgba(0,0,0,0.4)",
 							}}
 						>
-							{isPdf ? "Buka Dokumen PDF" : "Lihat Sertifikat"}
+							{isPdf ? "Perbesar / Baca Dokumen PDF" : "Lihat Sertifikat Penuh"}
 						</Typography>
 					</Box>
 				</Box>
 			</Box>
 
-			{/* Modal Viewer */}
+			{/* Fullscreen Interactive Modal */}
 			<Modal
 				open={open}
 				onClose={handleClose}
@@ -215,7 +214,7 @@ const Certificate = ({ ImgSertif }) => {
 									<FileText className="w-4 h-4" />
 								</div>
 								<span className="text-xs sm:text-sm font-mono font-bold truncate">
-									Pratinjau Sertifikat (PDF)
+									Pratinjau Lengkap Dokumen PDF
 								</span>
 							</div>
 
