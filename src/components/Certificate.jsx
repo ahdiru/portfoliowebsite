@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Modal, IconButton, Box, Backdrop, Typography } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import FullscreenIcon from "@mui/icons-material/Fullscreen";
-import { FileText, Download, ExternalLink, Award } from "lucide-react";
+import { Download, ExternalLink, Award } from "lucide-react";
+import { convertPdfFirstPageToImage } from "../utils/pdfToImage";
 
 export const isPdfUrl = (url) => {
 	if (!url || typeof url !== "string") return false;
@@ -10,9 +11,37 @@ export const isPdfUrl = (url) => {
 	return cleanUrl.endsWith(".pdf") || url.startsWith("data:application/pdf");
 };
 
-const Certificate = ({ ImgSertif }) => {
+const Certificate = ({ ImgSertif, pdfUrl }) => {
 	const [open, setOpen] = useState(false);
+	const [renderedImg, setRenderedImg] = useState(null);
+	const [converting, setConverting] = useState(false);
 	const isPdf = isPdfUrl(ImgSertif);
+	const actualPdfUrl = pdfUrl || (isPdf ? ImgSertif : null);
+
+	useEffect(() => {
+		let isMounted = true;
+
+		if (isPdf) {
+			setConverting(true);
+			convertPdfFirstPageToImage(ImgSertif, 2.5)
+				.then((imgData) => {
+					if (isMounted) {
+						setRenderedImg(imgData);
+						setConverting(false);
+					}
+				})
+				.catch((err) => {
+					console.warn("PDF to image render fallback:", err);
+					if (isMounted) setConverting(false);
+				});
+		} else {
+			setRenderedImg(ImgSertif);
+		}
+
+		return () => {
+			isMounted = false;
+		};
+	}, [ImgSertif, isPdf]);
 
 	const handleOpen = () => {
 		setOpen(true);
@@ -21,6 +50,8 @@ const Certificate = ({ ImgSertif }) => {
 	const handleClose = () => {
 		setOpen(false);
 	};
+
+	const displaySource = renderedImg || (!isPdf ? ImgSertif : null);
 
 	return (
 		<Box component="div" sx={{ width: "100%" }}>
@@ -46,76 +77,55 @@ const Certificate = ({ ImgSertif }) => {
 							opacity: 1,
 						},
 						"& .certificate-image": {
-							filter: "contrast(1.05) brightness(1) saturate(1.1)",
+							filter: "contrast(1.05) brightness(1) saturate(1.05)",
 						},
 					},
 				}}
 			>
-				{/* Content: Direct PDF Preview or Image */}
-				{isPdf ? (
-					<Box
-						onClick={handleOpen}
-						sx={{
-							position: "relative",
-							width: "100%",
-							aspectRatio: "16/11.5",
-							backgroundColor: "#F5F0E6",
-							overflow: "hidden",
-							cursor: "pointer",
-						}}
-					>
-						{/* Direct PDF Embed View (No click needed to see) */}
-						<iframe
-							src={`${ImgSertif}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
-							title="Pratinjau Langsung PDF Sertifikat"
-							className="w-full h-full pointer-events-none select-none"
-							style={{
-								border: "none",
-								width: "100%",
-								height: "100%",
-								backgroundColor: "#FFFFFF",
-							}}
-						/>
-
-						{/* PDF Badge Indicator */}
-						<div className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full bg-[#1E3B2F] text-[#F5F0E6] text-[10px] font-mono font-bold flex items-center gap-1 shadow-xs pointer-events-none z-10">
-							<Award className="w-3 h-3 text-[#C8B48A]" />
-							<span>PDF</span>
-						</div>
-					</Box>
-				) : (
-					<Box
-						sx={{
-							position: "relative",
-							"&::before": {
-								content: '""',
-								position: "absolute",
-								top: 0,
-								left: 0,
-								right: 0,
-								bottom: 0,
-								backgroundColor: "rgba(0, 0, 0, 0.05)",
-								zIndex: 1,
-							},
-						}}
-					>
+				{/* Certificate Clean Fullview Image (Zero PDF toolbars) */}
+				<Box
+					sx={{
+						position: "relative",
+						width: "100%",
+						aspectRatio: "16/11.5",
+						backgroundColor: "#EDE7DA",
+						overflow: "hidden",
+					}}
+				>
+					{displaySource ? (
 						<img
 							className="certificate-image"
-							src={ImgSertif}
-							alt="Certificate"
+							src={displaySource}
+							alt="Certificate Full View"
 							style={{
 								width: "100%",
-								height: "auto",
+								height: "100%",
 								display: "block",
 								objectFit: "cover",
-								filter: "contrast(1.05) brightness(0.95)",
+								filter: "contrast(1.02) brightness(0.98)",
 								transition: "filter 0.3s ease",
-								aspectRatio: "16/11.5",
 							}}
 							onClick={handleOpen}
 						/>
-					</Box>
-				)}
+					) : (
+						<div className="w-full h-full flex flex-col items-center justify-center bg-[#F5F0E6] p-4 text-center animate-pulse">
+							<div className="w-10 h-10 rounded-xl bg-[#1E3B2F] text-[#F5F0E6] flex items-center justify-center mb-2 shadow-xs">
+								<Award className="w-5 h-5 text-[#C8B48A]" />
+							</div>
+							<span className="text-xs font-mono font-bold text-[#1E3B2F]">
+								{converting ? "Memuat Pratinjau..." : "Sertifikat"}
+							</span>
+						</div>
+					)}
+
+					{/* Subtle PDF Badge if from PDF */}
+					{actualPdfUrl && (
+						<div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full bg-[#1E3B2F]/90 backdrop-blur-xs text-[#F5F0E6] text-[9px] font-mono font-bold flex items-center gap-1 shadow-xs pointer-events-none z-10">
+							<Award className="w-2.5 h-2.5 text-[#C8B48A]" />
+							<span>PDF</span>
+						</div>
+					)}
+				</Box>
 
 				{/* Hover Overlay */}
 				<Box
@@ -151,7 +161,7 @@ const Certificate = ({ ImgSertif }) => {
 					>
 						<FullscreenIcon
 							sx={{
-								fontSize: 36,
+								fontSize: 38,
 								mb: 0.5,
 								filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.3))",
 							}}
@@ -164,13 +174,13 @@ const Certificate = ({ ImgSertif }) => {
 								textShadow: "0 2px 4px rgba(0,0,0,0.4)",
 							}}
 						>
-							{isPdf ? "Perbesar / Baca Dokumen PDF" : "Lihat Sertifikat Penuh"}
+							Lihat Sertifikat Penuh
 						</Typography>
 					</Box>
 				</Box>
 			</Box>
 
-			{/* Fullscreen Interactive Modal */}
+			{/* Fullscreen Modal View (Fullview without toolbars) */}
 			<Modal
 				open={open}
 				onClose={handleClose}
@@ -179,7 +189,7 @@ const Certificate = ({ ImgSertif }) => {
 				BackdropProps={{
 					timeout: 300,
 					sx: {
-						backgroundColor: "rgba(0, 0, 0, 0.85)",
+						backgroundColor: "rgba(0, 0, 0, 0.88)",
 						backdropFilter: "blur(6px)",
 					},
 				}}
@@ -190,94 +200,47 @@ const Certificate = ({ ImgSertif }) => {
 					p: 2,
 				}}
 			>
-				{isPdf ? (
-					/* PDF Modal Viewer */
-					<Box
-						sx={{
-							position: "relative",
-							width: { xs: "96vw", sm: "90vw", md: "80vw" },
-							height: { xs: "90vh", sm: "88vh" },
-							maxWidth: "1100px",
-							backgroundColor: "#FFFFFF",
-							borderRadius: 3,
-							overflow: "hidden",
-							display: "flex",
-							flexDirection: "column",
-							boxShadow: "0 24px 60px rgba(0,0,0,0.4)",
-							outline: "none",
-						}}
-					>
-						{/* Header Bar */}
-						<div className="flex items-center justify-between px-4 py-3 bg-[#1E3B2F] text-[#F5F0E6] shrink-0 border-b border-[#D8CFBE]">
-							<div className="flex items-center gap-2.5 min-w-0">
-								<div className="p-1.5 rounded-lg bg-[#FFFFFF]/10 text-[#C8B48A]">
-									<FileText className="w-4 h-4" />
-								</div>
-								<span className="text-xs sm:text-sm font-mono font-bold truncate">
-									Pratinjau Lengkap Dokumen PDF
-								</span>
-							</div>
-
-							<div className="flex items-center gap-2 shrink-0">
+				<Box
+					sx={{
+						position: "relative",
+						width: "auto",
+						maxWidth: "94vw",
+						maxHeight: "92vh",
+						outline: "none",
+						display: "flex",
+						flexDirection: "column",
+						alignItems: "center",
+					}}
+				>
+					{/* Close & Action Header */}
+					<div className="w-full flex items-center justify-between pb-3 gap-2">
+						{actualPdfUrl ? (
+							<div className="flex items-center gap-2">
 								<a
-									href={ImgSertif}
+									href={actualPdfUrl}
 									target="_blank"
 									rel="noopener noreferrer"
-									className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#F5F0E6] text-[#1E3B2F] text-xs font-mono font-semibold hover:bg-[#EDE7DA] transition-all shadow-xs"
+									className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#F5F0E6] text-[#1E3B2F] text-xs font-mono font-semibold hover:bg-[#EDE7DA] transition-all shadow-xs"
 								>
-									<ExternalLink className="w-3.5 h-3.5" />
-									<span className="hidden sm:inline">Buka Tab Baru</span>
+									<ExternalLink className="w-3.5 h-3.5 text-[#7F8C6A]" />
+									<span>Buka PDF Asli</span>
 								</a>
-
 								<a
-									href={ImgSertif}
+									href={actualPdfUrl}
 									download="Sertifikat.pdf"
-									className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#7F8C6A] text-[#F5F0E6] text-xs font-mono font-semibold hover:bg-[#6e7a5b] transition-all shadow-xs"
+									className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1E3B2F] text-[#F5F0E6] text-xs font-mono font-semibold hover:bg-[#2A5241] transition-all shadow-xs"
 								>
-									<Download className="w-3.5 h-3.5" />
-									<span className="hidden sm:inline">Unduh PDF</span>
+									<Download className="w-3.5 h-3.5 text-[#C8B48A]" />
+									<span>Unduh PDF</span>
 								</a>
-
-								<button
-									onClick={handleClose}
-									className="p-1.5 rounded-lg text-[#F5F0E6]/80 hover:text-white hover:bg-white/10 transition-colors ml-1"
-									title="Tutup"
-								>
-									<CloseIcon sx={{ fontSize: 20 }} />
-								</button>
 							</div>
-						</div>
+						) : <div />}
 
-						{/* PDF Iframe Embed */}
-						<div className="flex-1 w-full h-full bg-[#404040] relative overflow-hidden">
-							<iframe
-								src={`${ImgSertif}#toolbar=1&navpanes=0`}
-								title="Certificate PDF Document"
-								className="w-full h-full"
-								style={{ border: "none" }}
-							/>
-						</div>
-					</Box>
-				) : (
-					/* Image Modal Viewer */
-					<Box
-						sx={{
-							position: "relative",
-							width: "auto",
-							maxWidth: "92vw",
-							maxHeight: "90vh",
-							outline: "none",
-						}}
-					>
 						<IconButton
 							onClick={handleClose}
 							sx={{
-								position: "absolute",
-								right: 12,
-								top: 12,
 								color: "white",
 								bgcolor: "rgba(0,0,0,0.6)",
-								zIndex: 2,
 								padding: 1,
 								"&:hover": {
 									bgcolor: "rgba(0,0,0,0.85)",
@@ -288,21 +251,23 @@ const Certificate = ({ ImgSertif }) => {
 						>
 							<CloseIcon sx={{ fontSize: 22 }} />
 						</IconButton>
+					</div>
 
-						<img
-							src={ImgSertif}
-							alt="Certificate Full View"
-							style={{
-								display: "block",
-								maxWidth: "100%",
-								maxHeight: "90vh",
-								borderRadius: "12px",
-								objectFit: "contain",
-								boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
-							}}
-						/>
-					</Box>
-				)}
+					{/* Clean Fullview Certificate Image (Zero toolbars) */}
+					<img
+						src={displaySource}
+						alt="Certificate Full View"
+						style={{
+							display: "block",
+							maxWidth: "94vw",
+							maxHeight: "82vh",
+							borderRadius: "14px",
+							objectFit: "contain",
+							boxShadow: "0 24px 60px rgba(0,0,0,0.6)",
+							backgroundColor: "#FFFFFF",
+						}}
+					/>
+				</Box>
 			</Modal>
 		</Box>
 	);
