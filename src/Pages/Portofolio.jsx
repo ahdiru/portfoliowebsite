@@ -94,9 +94,19 @@ export default function FullWidthTabs() {
       if (projectsResponse.error) throw projectsResponse.error;
       if (certificatesResponse.error) throw certificatesResponse.error;
 
-      const projectData = projectsResponse.data || [];
+      let projectData = projectsResponse.data || [];
       let certificateData = certificatesResponse.data || [];
 
+      // Merge local fallback projects
+      try {
+        const localProjs = localStorage.getItem('portfolio_local_projects');
+        if (localProjs) {
+          const parsed = JSON.parse(localProjs);
+          projectData = [...projectData, ...parsed.filter(p => !projectData.some(c => c.id === p.id))];
+        }
+      } catch (e) {}
+
+      // Merge local fallback certificates
       try {
         const localCerts = localStorage.getItem('portfolio_local_certificates');
         if (localCerts) {
@@ -113,6 +123,8 @@ export default function FullWidthTabs() {
     } catch (error) {
       console.error("Error fetching data:", error);
       try {
+        const localProjs = localStorage.getItem('portfolio_local_projects');
+        if (localProjs) setProjects(JSON.parse(localProjs));
         const localCerts = localStorage.getItem('portfolio_local_certificates');
         if (localCerts) setCertificates(JSON.parse(localCerts));
       } catch (e) {}
@@ -122,7 +134,11 @@ export default function FullWidthTabs() {
   useEffect(() => {
     fetchData();
     window.addEventListener('portfolioCertificatesUpdated', fetchData);
-    return () => window.removeEventListener('portfolioCertificatesUpdated', fetchData);
+    window.addEventListener('portfolioProjectsUpdated', fetchData);
+    return () => {
+      window.removeEventListener('portfolioCertificatesUpdated', fetchData);
+      window.removeEventListener('portfolioProjectsUpdated', fetchData);
+    };
   }, [fetchData]);
 
   const handleChange = (event, newValue) => {

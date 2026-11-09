@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import Swal from "sweetalert2";
 import { toSlug } from "../utils/slug";
+import { resolvePdfUrl } from "../utils/pdfStorage";
 
 const TECH_ICONS = {
   React: Globe,
@@ -289,7 +290,14 @@ const ProjectDetails = () => {
                       href={project.PdfUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="group relative inline-flex items-center space-x-1.5 md:space-x-2 px-4 md:px-8 py-2.5 md:py-4 bg-gradient-to-r from-emerald-600/20 to-teal-600/20 hover:from-emerald-600/30 hover:to-teal-600/30 text-emerald-300 rounded-xl transition-all duration-300 border border-emerald-500/30 hover:border-emerald-500/50 backdrop-blur-xl overflow-hidden text-sm md:text-base"
+                      onClick={async (e) => {
+                        if (project.PdfUrl.startsWith("indexeddb:")) {
+                          e.preventDefault();
+                          const resolved = await resolvePdfUrl(project.PdfUrl);
+                          if (resolved) window.open(resolved, "_blank");
+                        }
+                      }}
+                      className="group relative inline-flex items-center space-x-1.5 md:space-x-2 px-4 md:px-8 py-2.5 md:py-4 bg-gradient-to-r from-emerald-600/20 to-teal-600/20 hover:from-emerald-600/30 hover:to-teal-600/30 text-emerald-300 rounded-xl transition-all duration-300 border border-emerald-500/30 hover:border-emerald-500/50 backdrop-blur-xl overflow-hidden text-sm md:text-base cursor-pointer"
                     >
                       <div className="absolute inset-0 translate-y-[100%] bg-gradient-to-r from-emerald-600/20 to-teal-600/20 transition-transform duration-300 group-hover:translate-y-[0%]" />
                       <FileText className="relative w-4 h-4 md:w-5 md:h-5 group-hover:rotate-12 transition-transform text-[#C8B48A]" />

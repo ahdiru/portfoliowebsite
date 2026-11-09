@@ -16,8 +16,9 @@ import {
   Sparkles,
 } from "lucide-react";
 import Swal from "sweetalert2";
-import { convertPdfFirstPageToImage, extractPdfPresentationDetails } from "../../utils/pdfToImage";
+import { convertPdfFirstPageToImage, extractPdfPresentationDetails, dataUrlToFile } from "../../utils/pdfToImage";
 import { compressPdfIfNeeded } from "../../utils/pdfCompressor";
+import { savePdfToLocalDb, resolvePdfUrl } from "../../utils/pdfStorage";
 
 const Card = ({ children, className = "" }) => (
   <div className={`relative bg-[#FFFFFF] border border-[#D8CFBE] rounded-2xl shadow-xs overflow-hidden ${className}`}>
@@ -164,7 +165,14 @@ const ProjectCard = ({ project, onDelete, onEdit }) => {
                 href={pdfDeck}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-1.5 rounded-lg border border-[#D8CFBE] text-[#1E3B2F] bg-[#EDE7DA] hover:bg-[#1E3B2F] hover:text-[#F5F0E6] transition-colors"
+                onClick={async (e) => {
+                  if (pdfDeck.startsWith("indexeddb:")) {
+                    e.preventDefault();
+                    const blobUrl = await resolvePdfUrl(pdfDeck);
+                    if (blobUrl) window.open(blobUrl, "_blank");
+                  }
+                }}
+                className="p-1.5 rounded-lg border border-[#D8CFBE] text-[#1E3B2F] bg-[#EDE7DA] hover:bg-[#1E3B2F] hover:text-[#F5F0E6] transition-colors cursor-pointer"
                 title="Buka Dokumen PDF Presentasi"
               >
                 <FileText className="w-3.5 h-3.5" />
@@ -726,15 +734,23 @@ const ProjectForm = ({
         </button>
         <button
           type="submit"
-          disabled={uploading || coverConverting || deckConverting}
+          disabled={uploading || coverConverting || deckConverting || isExtractingPdf || compressingPdf}
           className="flex items-center gap-2 px-5 py-2 bg-[#1E3B2F] hover:bg-[#2A5241] text-[#F5F0E6] rounded-xl font-medium text-sm transition-all shadow-xs disabled:opacity-50"
         >
-          {uploading ? (
+          {uploading || compressingPdf || isExtractingPdf ? (
             <div className="w-4 h-4 border-2 border-[#F5F0E6]/30 border-t-[#F5F0E6] rounded-full animate-spin" />
           ) : (
             <Upload className="w-4 h-4 text-[#C8B48A]" />
           )}
-          <span>{uploading ? "Menyimpan Proyek..." : submitLabel}</span>
+          <span>
+            {uploading
+              ? "Menyimpan Proyek..."
+              : compressingPdf
+              ? "Mengompresi PDF..."
+              : isExtractingPdf
+              ? "Menganalisis PDF..."
+              : submitLabel}
+          </span>
         </button>
       </div>
     </form>
@@ -759,12 +775,23 @@ export default function Projects() {
 
   const saveLocalProjects = (items) => {
     try {
-      localStorage.setItem("portfolio_local_projects", JSON.stringify(items));
-      localStorage.setItem("projects", JSON.stringify(items));
+      const sanitized = items.map((p) => {
+        let safeImg = p.Img || "";
+        if (safeImg.startsWith("data:image/") && safeImg.length > 500000) {
+          safeImg = "";
+        }
+        return {
+          ...p,
+          Img: safeImg,
+        };
+      });
+
+      localStorage.setItem("portfolio_local_projects", JSON.stringify(sanitized));
+      localStorage.setItem("projects", JSON.stringify(sanitized));
       window.dispatchEvent(new Event("portfolioProjectsUpdated"));
       window.dispatchEvent(new Event("storage"));
     } catch (e) {
-      console.error(e);
+      console.error("Local storage save error:", e);
     }
   };
 
@@ -807,10 +834,10 @@ export default function Projects() {
     let fileToUpload = f;
     const isPdf = f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf");
 
-    // Auto-compress if PDF > 20 MB before pushing to storage
-    if (isPdf && f.size > 20 * 1024 * 1024) {
+    // Auto-compress if PDF > 18 MB before pushing to storage
+    if (isPdf && f.size > 18 * 1024 * 1024) {
       try {
-        const comp = await compressPdfIfNeeded(f, { targetMaxBytes: 20 * 1024 * 1024 });
+        const comp = await compressPdfIfNeeded(f, { targetMaxBytes: 18 * 1024 * 1024 });
         if (comp.wasCompressed) {
           fileToUpload = comp.file;
         }
@@ -826,7 +853,7 @@ export default function Projects() {
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from("project-images")
         .upload(fileName, fileToUpload, {
-          contentType: fileToUpload.type || (fileToUpload.name.endsWith(".pdf") ? "application/pdf" : "image/jpeg"),
+          contentType: fileToUpload.type || (isPdf ? "application/pdf" : "image/jpeg"),
           upsert: true,
         });
 
@@ -835,31 +862,61 @@ export default function Projects() {
           .from("project-images")
           .getPublicUrl(fileName);
         return data.publicUrl;
+      } else if (uploadError) {
+        console.warn("Supabase storage upload error:", uploadError);
       }
     } catch (err) {
-      console.warn("Storage upload failed, falling back to data URL:", err);
+      console.warn("Storage upload exception:", err);
     }
 
-    // Fallback Data URL
-    const reader = new FileReader();
-    return new Promise((resolve) => {
-      reader.onload = () => resolve(reader.result);
-      reader.readAsDataURL(fileToUpload);
-    });
+    // SAFE FALLBACK: Never return giant base64 data URLs!
+    // For PDFs: store in browser IndexedDB (multi-gigabyte capacity)
+    if (isPdf) {
+      const localId = `pdf_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      await savePdfToLocalDb(localId, fileToUpload);
+      return `indexeddb:${localId}`;
+    }
+
+    // For images under 500KB: return data URL fallback
+    if (fileToUpload.size < 500 * 1024) {
+      const reader = new FileReader();
+      return new Promise((resolve) => {
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(fileToUpload);
+      });
+    }
+
+    return "";
   };
 
   const handleCreate = async (form, { coverFile, deckFile, coverPreview }) => {
     setUploading(true);
 
     try {
-      // 1. Cover Image
-      let imgUrl = coverPreview || "";
+      // 1. Cover Image: upload as file to storage so Supabase gets a clean HTTPS URL
+      let imgUrl = "";
       if (coverFile) {
         const isPdf = coverFile.type === "application/pdf" || coverFile.name.endsWith(".pdf");
-        if (isPdf) {
-          imgUrl = coverPreview; // Slide 1 rendered data URL
-        } else {
+        if (isPdf && coverPreview && coverPreview.startsWith("data:image/")) {
+          try {
+            const coverImgFile = dataUrlToFile(coverPreview, `${coverFile.name.replace(/\.pdf$/i, "")}-cover.jpg`);
+            imgUrl = await uploadFileToStorage(coverImgFile, "cover");
+          } catch (e) {
+            imgUrl = coverPreview;
+          }
+        } else if (!isPdf) {
           imgUrl = await uploadFileToStorage(coverFile, "cover");
+        }
+      } else if (coverPreview) {
+        if (coverPreview.startsWith("data:image/")) {
+          try {
+            const coverImgFile = dataUrlToFile(coverPreview, "cover.jpg");
+            imgUrl = await uploadFileToStorage(coverImgFile, "cover");
+          } catch (e) {
+            imgUrl = coverPreview;
+          }
+        } else {
+          imgUrl = coverPreview;
         }
       }
 
@@ -867,18 +924,20 @@ export default function Projects() {
       let pdfUrl = form.PdfUrl || "";
       if (deckFile) {
         pdfUrl = await uploadFileToStorage(deckFile, "deck");
+        // Also cache in IndexedDB for instant offline preview
+        const localKey = `deck_${Date.now()}`;
+        savePdfToLocalDb(localKey, deckFile).catch(() => {});
       }
 
       // Parse tags
-      const techStack = form.TechStack.split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+      const techStack = form.TechStack
+        ? form.TechStack.split(",").map((s) => s.trim()).filter(Boolean)
+        : [];
 
-      let features = form.Features.split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+      let features = form.Features
+        ? form.Features.split(",").map((s) => s.trim()).filter(Boolean)
+        : [];
 
-      // Embed PDF Deck cleanly into features array so it persists on any Supabase table
       if (pdfUrl) {
         features = [...features, `__pdf:${pdfUrl}__`];
       }
@@ -886,7 +945,7 @@ export default function Projects() {
       // 3. Insert to Supabase with fallback
       let savedToDb = false;
       try {
-        const { error: insertError } = await supabase.from("projects").insert({
+        const { data: insertedData, error: insertError } = await supabase.from("projects").insert({
           Title: form.Title,
           Description: form.Description,
           Img: imgUrl,
@@ -894,31 +953,36 @@ export default function Projects() {
           Features: features,
           Link: form.Link,
           Github: form.Github,
-        });
+        }).select();
 
-        if (!insertError) {
+        if (!insertError && insertedData) {
           savedToDb = true;
+        } else if (insertError) {
+          console.error("Supabase insert error:", insertError);
         }
       } catch (err) {
-        console.warn("DB insert error, fallback to local:", err);
+        console.error("DB insert error, fallback to local:", err);
       }
 
-      // 4. Save to Local fallback
+      // 4. Save to Local fallback or local sync
+      const localList = getLocalProjects();
+      const newProj = {
+        id: `local_proj_${Date.now()}`,
+        Title: form.Title,
+        Description: form.Description,
+        Img: imgUrl,
+        TechStack: techStack,
+        Features: features,
+        Link: form.Link,
+        Github: form.Github,
+        PdfUrl: pdfUrl,
+        created_at: new Date().toISOString(),
+      };
+
       if (!savedToDb) {
-        const localList = getLocalProjects();
-        const newProj = {
-          id: `local_proj_${Date.now()}`,
-          Title: form.Title,
-          Description: form.Description,
-          Img: imgUrl,
-          TechStack: techStack,
-          Features: features,
-          Link: form.Link,
-          Github: form.Github,
-          PdfUrl: pdfUrl,
-          created_at: new Date().toISOString(),
-        };
         saveLocalProjects([newProj, ...localList]);
+      } else {
+        window.dispatchEvent(new Event("portfolioProjectsUpdated"));
       }
 
       Swal.fire({
@@ -951,25 +1015,39 @@ export default function Projects() {
       let imgUrl = coverPreview || editProject.Img || "";
       if (coverFile) {
         const isPdf = coverFile.type === "application/pdf" || coverFile.name.endsWith(".pdf");
-        if (isPdf) {
-          imgUrl = coverPreview;
-        } else {
+        if (isPdf && coverPreview && coverPreview.startsWith("data:image/")) {
+          try {
+            const coverImgFile = dataUrlToFile(coverPreview, `${coverFile.name.replace(/\.pdf$/i, "")}-cover.jpg`);
+            imgUrl = await uploadFileToStorage(coverImgFile, "cover");
+          } catch (e) {
+            imgUrl = coverPreview;
+          }
+        } else if (!isPdf) {
           imgUrl = await uploadFileToStorage(coverFile, "cover");
+        }
+      } else if (coverPreview && coverPreview.startsWith("data:image/")) {
+        try {
+          const coverImgFile = dataUrlToFile(coverPreview, "cover.jpg");
+          imgUrl = await uploadFileToStorage(coverImgFile, "cover");
+        } catch (e) {
+          imgUrl = coverPreview;
         }
       }
 
       let pdfUrl = form.PdfUrl || parseProjectPdf(editProject) || "";
       if (deckFile) {
         pdfUrl = await uploadFileToStorage(deckFile, "deck");
+        const localKey = `deck_${Date.now()}`;
+        savePdfToLocalDb(localKey, deckFile).catch(() => {});
       }
 
-      const techStack = form.TechStack.split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+      const techStack = form.TechStack
+        ? form.TechStack.split(",").map((s) => s.trim()).filter(Boolean)
+        : [];
 
-      let features = form.Features.split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+      let features = form.Features
+        ? form.Features.split(",").map((s) => s.trim()).filter(Boolean)
+        : [];
 
       if (pdfUrl) {
         features = [...features, `__pdf:${pdfUrl}__`];

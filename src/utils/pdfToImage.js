@@ -6,6 +6,24 @@ if (typeof window !== 'undefined') {
 }
 
 /**
+ * Converts a base64 Data URL to a native File object for direct cloud storage upload
+ * @param {string} dataUrl
+ * @param {string} filename
+ * @returns {File}
+ */
+export function dataUrlToFile(dataUrl, filename = "image.jpg") {
+  const arr = dataUrl.split(",");
+  const mime = arr[0].match(/:(.*?);/)?.[1] || "image/jpeg";
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new File([u8arr], filename, { type: mime });
+}
+
+/**
  * Converts the first page of a PDF file, Blob, ArrayBuffer, or URL into a clean high-resolution JPEG Data URL
  * @param {File | Blob | ArrayBuffer | string} source
  * @param {number} scale Default 2.0 for retina clarity
