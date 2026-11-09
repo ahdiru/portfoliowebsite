@@ -1,9 +1,9 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { ExternalLink, ArrowRight } from "lucide-react";
+import { ExternalLink, ArrowRight, FileText } from "lucide-react";
 import { toSlug } from "../utils/slug";
 
-const CardProject = ({ Img, Title, Description, Link: ProjectLink, id }) => {
+const CardProject = ({ Img, Title, Description, Link: ProjectLink, id, PdfUrl }) => {
   const handleLiveDemo = (e) => {
     if (!ProjectLink) {
       e.preventDefault();
@@ -29,6 +29,12 @@ const CardProject = ({ Img, Title, Description, Link: ProjectLink, id }) => {
               className="w-full h-full object-cover aspect-[16/9] transform group-hover:scale-105 transition-transform duration-500"
               loading="lazy"
             />
+            {PdfUrl && (
+              <div className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full bg-[#1E3B2F]/90 backdrop-blur-xs text-[#F5F0E6] text-[10px] font-mono font-semibold flex items-center gap-1 shadow-xs">
+                <FileText className="w-3 h-3 text-[#C8B48A]" />
+                <span>PDF Deck</span>
+              </div>
+            )}
           </div>
 
           <div className="mt-4 space-y-3">

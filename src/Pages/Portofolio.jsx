@@ -242,6 +242,14 @@ export default function FullWidthTabs() {
                       Description={project.Description}
                       Link={project.Link}
                       id={project.id}
+                      PdfUrl={
+                        project.PdfUrl ||
+                        (Array.isArray(project.Features) &&
+                          project.Features.find((f) => typeof f === "string" && f.startsWith("__pdf:"))
+                            ?.replace("__pdf:", "")
+                            ?.replace(/__$/, "")) ||
+                        null
+                      }
                     />
                   </div>
                 ))}
