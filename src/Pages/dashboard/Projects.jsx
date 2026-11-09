@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { supabase } from "../../supabase";
 import {
   Plus,
@@ -105,25 +105,30 @@ const ProjectCard = ({
 
   return (
     <div
-      draggable
-      onDragStart={(e) => onDragStart && onDragStart(e, index)}
       onDragOver={(e) => onDragOver && onDragOver(e, index)}
       onDrop={(e) => onDrop && onDrop(e, index)}
       onDragEnd={onDragEnd}
       className={`transition-all duration-200 ${
-        isDragging ? "opacity-30 scale-95" : "opacity-100"
+        isDragging ? "opacity-35 scale-[0.98] ring-2 ring-[#7F8C6A] rounded-2xl" : "opacity-100"
       }`}
     >
       <Card className="h-full hover:border-[#7F8C6A] transition-colors">
         <div className="p-4 flex flex-col h-full">
           {/* Top Position Bar & Reorder Stepper */}
           <div className="flex items-center justify-between mb-3 pb-2.5 border-b border-[#D8CFBE]/60">
-            <div className="flex items-center gap-1.5 bg-[#EDE7DA] px-2 py-1 rounded-lg border border-[#D8CFBE]">
+            <div
+              draggable
+              onDragStart={(e) => {
+                e.stopPropagation();
+                onDragStart && onDragStart(e, index);
+              }}
+              className="flex items-center gap-1.5 bg-[#EDE7DA] hover:bg-[#D8CFBE]/60 px-2 py-1 rounded-lg border border-[#D8CFBE] cursor-grab active:cursor-grabbing transition-colors"
+              title="Tahan & tarik untuk memindahkan urutan proyek"
+            >
               <GripVertical
-                className="w-3.5 h-3.5 text-[#7F8C6A] cursor-grab active:cursor-grabbing shrink-0"
-                title="Tahan & tarik kartu untuk memindahkan urutan proyek"
+                className="w-3.5 h-3.5 text-[#1E3B2F] shrink-0"
               />
-              <span className="text-[11px] font-mono font-bold text-[#1E3B2F]">
+              <span className="text-[11px] font-mono font-bold text-[#1E3B2F] select-none">
                 Posisi #{index + 1}
               </span>
             </div>
@@ -131,7 +136,12 @@ const ProjectCard = ({
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={() => onMove(index, index - 1)}
+                draggable={false}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMove(index, index - 1);
+                }}
                 disabled={index === 0}
                 className={`p-1 rounded-lg border text-xs font-mono transition-all flex items-center justify-center ${
                   index === 0
@@ -145,7 +155,12 @@ const ProjectCard = ({
 
               <button
                 type="button"
-                onClick={() => onMove(index, index + 1)}
+                draggable={false}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMove(index, index + 1);
+                }}
                 disabled={index === total - 1}
                 className={`p-1 rounded-lg border text-xs font-mono transition-all flex items-center justify-center ${
                   index === total - 1
@@ -836,6 +851,7 @@ export default function Projects() {
   const [editProject, setEditProject] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState(null);
+  const isReorderingRef = useRef(false);
 
   const getLocalProjects = () => {
     try {
@@ -846,7 +862,7 @@ export default function Projects() {
     }
   };
 
-  const saveLocalProjects = (items) => {
+  const saveLocalProjects = (items, dispatchEvents = true) => {
     try {
       const sanitized = items.map((p) => {
         let safeImg = p.Img || "";
@@ -861,14 +877,17 @@ export default function Projects() {
 
       safeSetLocalStorage("portfolio_local_projects", sanitized);
       safeSetLocalStorage("projects", sanitized);
-      window.dispatchEvent(new Event("portfolioProjectsUpdated"));
-      window.dispatchEvent(new Event("storage"));
+      if (dispatchEvents) {
+        window.dispatchEvent(new Event("portfolioProjectsUpdated"));
+        window.dispatchEvent(new Event("storage"));
+      }
     } catch (e) {
       console.error("Local storage save error:", e);
     }
   };
 
   const fetchProjects = async () => {
+    if (isReorderingRef.current) return;
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -915,6 +934,8 @@ export default function Projects() {
   const handleMoveProject = async (fromIndex, toIndex) => {
     if (toIndex < 0 || toIndex >= projects.length || fromIndex === toIndex) return;
 
+    isReorderingRef.current = true;
+
     const reordered = [...projects];
     const [moved] = reordered.splice(fromIndex, 1);
     reordered.splice(toIndex, 0, moved);
@@ -926,7 +947,7 @@ export default function Projects() {
 
     // Optimistic UI update
     setProjects(updated);
-    saveLocalProjects(updated);
+    saveLocalProjects(updated, false);
 
     // Persist to Supabase
     try {
@@ -942,6 +963,12 @@ export default function Projects() {
       await Promise.all(updatePromises);
     } catch (err) {
       console.warn("Gagal memperbarui urutan ke Supabase:", err);
+    } finally {
+      setTimeout(() => {
+        isReorderingRef.current = false;
+        window.dispatchEvent(new Event("portfolioProjectsUpdated"));
+        window.dispatchEvent(new Event("storage"));
+      }, 150);
     }
   };
 
