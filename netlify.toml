@@ -3,8 +3,9 @@
   publish = "dist"
 
 [build.environment]
-  NPM_FLAGS = "--legacy-peer-deps"
   NODE_VERSION = "20"
+  NPM_FLAGS = "--legacy-peer-deps"
+  NETLIFY_NPM_FLAGS = "--legacy-peer-deps"
 
 [[redirects]]
   from = "/*"
