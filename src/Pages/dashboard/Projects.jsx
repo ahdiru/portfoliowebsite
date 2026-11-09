@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import Swal from "sweetalert2";
 import { convertPdfFirstPageToImage, extractPdfPresentationDetails } from "../../utils/pdfToImage";
+import { compressPdfIfNeeded } from "../../utils/pdfCompressor";
 
 const Card = ({ children, className = "" }) => (
   <div className={`relative bg-[#FFFFFF] border border-[#D8CFBE] rounded-2xl shadow-xs overflow-hidden ${className}`}>
@@ -250,8 +251,58 @@ const ProjectForm = ({
   const [deckPreview, setDeckPreview] = useState(initialPdf || null);
   const [deckConverting, setDeckConverting] = useState(false);
   const [isExtractingPdf, setIsExtractingPdf] = useState(false);
+  const [compressionProgress, setCompressionProgress] = useState(null);
+  const [compressingPdf, setCompressingPdf] = useState(false);
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  // Compression helper
+  const runPdfCompression = async (targetFile) => {
+    if (!targetFile || targetFile.size <= 20 * 1024 * 1024) return targetFile;
+    setCompressingPdf(true);
+    setCompressionProgress({
+      percent: 5,
+      stage: `Memulai kompresi retina (asli ${(targetFile.size / (1024 * 1024)).toFixed(1)} MB)...`,
+      done: false,
+    });
+
+    try {
+      const res = await compressPdfIfNeeded(targetFile, {
+        targetMaxBytes: 20 * 1024 * 1024,
+        onProgress: (p) => setCompressionProgress({ ...p, done: false }),
+      });
+
+      if (res.wasCompressed) {
+        setDeckFile(res.file);
+        setCompressionProgress({
+          percent: 100,
+          stage: `Berhasil dikompresi: ${res.ratioText}`,
+          done: true,
+          info: res.ratioText,
+        });
+
+        Swal.fire({
+          toast: true,
+          position: "top-end",
+          icon: "success",
+          title: "⚡ Kompresi PDF Selesai!",
+          html: `<div style="font-size:12px;color:#F5F0E6;">Ukuran berkas berhasil ditekan ke <b>${(res.compressedSize / (1024 * 1024)).toFixed(2)} MB</b> (&le; 20 MB) dengan ketajaman visual tetap terjaga.</div>`,
+          timer: 3500,
+          showConfirmButton: false,
+          timerProgressBar: true,
+          background: "#1E3B2F",
+          color: "#F5F0E6",
+        });
+
+        return res.file;
+      }
+    } catch (err) {
+      console.error("Compression error:", err);
+    } finally {
+      setCompressingPdf(false);
+    }
+    return targetFile;
+  };
 
   // Auto-Fill Form from Presentation PDF
   const processPdfAutoFill = async (file) => {
@@ -261,6 +312,7 @@ const ProjectForm = ({
     setDeckConverting(true);
 
     try {
+      // 1. FAST TEXT & HEURISTIC DETECTION (INSTANT AUTO-FILL)
       const details = await extractPdfPresentationDetails(file);
 
       // Auto fill Cover
@@ -269,43 +321,38 @@ const ProjectForm = ({
         setCoverFile(file);
       }
 
-      // Auto fill Deck
+      // Auto fill Deck preview
       setDeckFile(file);
       setDeckPreview(details.coverImage);
 
-      // Auto fill Form Fields
+      // Auto fill Form Fields (Title, Description, TechStack, Features)
       setForm((prev) => {
-        // If title is empty or placeholder, use detected
         const currentTitleIsDefault = !prev.Title || prev.Title.trim().length === 0;
         const newTitle = currentTitleIsDefault ? details.detectedTitle : prev.Title;
 
-        // Description
         const currentDescIsDefault = !prev.Description || prev.Description.trim().length === 0;
         let newDesc = prev.Description;
         if (currentDescIsDefault && details.detectedDescription) {
           newDesc = details.detectedDescription;
         }
 
-        // Tech Stack
         const currentTech = prev.TechStack
           ? prev.TechStack.split(",").map((s) => s.trim()).filter(Boolean)
           : [];
         const mergedTech = Array.from(new Set([...currentTech, ...(details.detectedTech || [])]));
 
-        // Features
         const currentFeatures = prev.Features
           ? prev.Features.split(",").map((s) => s.trim()).filter(Boolean)
           : [];
         const mergedFeatures = Array.from(new Set([...currentFeatures, ...(details.detectedFeatures || [])]));
 
-        // Links
         const newGithub = (!prev.Github && details.detectedGithub) ? details.detectedGithub : prev.Github;
         const newLink = (!prev.Link && details.detectedLive) ? details.detectedLive : prev.Link;
 
         return {
           ...prev,
-          Title: newTitle || prev.Title,
-          Description: newDesc || prev.Description,
+          Title: newTitle || details.detectedTitle || prev.Title,
+          Description: newDesc || details.detectedDescription || prev.Description,
           TechStack: mergedTech.join(", "),
           Features: mergedFeatures.join(", "),
           Github: newGithub || prev.Github,
@@ -320,18 +367,25 @@ const ProjectForm = ({
         title: "✨ PDF Terdeteksi Otomatis!",
         html: `<div style="text-align: left; font-size: 12px; line-height: 1.5; color: #F5F0E6;">
           <b>Judul:</b> ${details.detectedTitle || "-"}<br/>
-          <b>Tech Stack:</b> ${details.detectedTech?.length ? details.detectedTech.join(", ") : "Terdeteksi"}<br/>
+          <b>Tech Stack:</b> ${details.detectedTech?.slice(0, 4).join(", ") || "-"}<br/>
           <b>Slide 1:</b> Dijadikan Cover & Deck Presentasi
         </div>`,
-        timer: 4000,
+        timer: 3500,
         showConfirmButton: false,
         timerProgressBar: true,
         background: "#1E3B2F",
         color: "#F5F0E6",
       });
+
+      // 2. AUTO-COMPRESS IF > 20 MB (e.g. 76.94 MB)
+      if (file.size > 20 * 1024 * 1024) {
+        await runPdfCompression(file);
+      } else {
+        setCompressionProgress(null);
+      }
+
     } catch (err) {
       console.error("Auto detect PDF failed:", err);
-      // Fallback: at least extract cover image
       try {
         const coverImg = await convertPdfFirstPageToImage(file, 2.0);
         setCoverPreview(coverImg);
@@ -370,6 +424,7 @@ const ProjectForm = ({
   const handleClearDeck = () => {
     setDeckFile(null);
     setDeckPreview(null);
+    setCompressionProgress(null);
     setForm((f) => ({ ...f, PdfUrl: "" }));
   };
 
@@ -549,7 +604,17 @@ const ProjectForm = ({
                     {deckFile ? deckFile.name : (form.PdfUrl ? form.PdfUrl.split("/").pop() : "Pilih atau Tarik Berkas PDF Presentasi")}
                   </p>
                   <p className="text-[11px] text-[#5A6650] font-mono">
-                    {deckFile ? `${(deckFile.size / (1024 * 1024)).toFixed(2)} MB • PDF siap diunggah` : "Mendukung format .pdf slide deck"}
+                    {deckFile ? (
+                      compressionProgress?.done ? (
+                        <span className="text-[#1E3B2F] font-bold">
+                          ✅ Terkompresi: {compressionProgress.info} • Kualitas Retina
+                        </span>
+                      ) : (
+                        `${(deckFile.size / (1024 * 1024)).toFixed(2)} MB • ${deckFile.size > 20 * 1024 * 1024 ? "Perlu Kompresi (< 20 MB)" : "Siap diunggah"}`
+                      )
+                    ) : (
+                      "Mendukung format .pdf slide deck (Maksimal 20 MB)"
+                    )}
                   </p>
                 </div>
               </div>
@@ -561,8 +626,58 @@ const ProjectForm = ({
                 accept="application/pdf,.pdf"
                 onChange={handleDeckChange}
                 className="hidden"
+                disabled={compressingPdf || isExtractingPdf}
               />
             </label>
+
+            {/* Compression Progress Bar */}
+            {compressionProgress && !compressionProgress.done && (
+              <div className="p-3 rounded-lg bg-[#EDE7DA] border border-[#C8B48A] space-y-2">
+                <div className="flex items-center justify-between text-xs font-mono text-[#1E3B2F]">
+                  <span className="font-semibold flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-[#C8B48A] animate-pulse" />
+                    <span>Mengompresi PDF (Target &le; 20 MB)...</span>
+                  </span>
+                  <span className="font-bold">{compressionProgress.percent}%</span>
+                </div>
+                <div className="w-full h-2 bg-[#D8CFBE] rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-[#1E3B2F] transition-all duration-300 rounded-full"
+                    style={{ width: `${compressionProgress.percent}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-[#5A6650] font-mono">
+                  {compressionProgress.stage}
+                </p>
+              </div>
+            )}
+
+            {/* Quick Actions for attached Deck */}
+            {deckFile && (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => processPdfAutoFill(deckFile)}
+                  disabled={isExtractingPdf || compressingPdf}
+                  className="px-3 py-1.5 rounded-lg bg-[#1E3B2F] text-[#F5F0E6] hover:bg-[#2A5241] text-xs font-mono transition-all flex items-center gap-1.5 shadow-2xs"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#C8B48A]" />
+                  <span>{isExtractingPdf ? "Menganalisis..." : "✨ Auto-Fill Form dari PDF ini"}</span>
+                </button>
+
+                {deckFile.size > 20 * 1024 * 1024 && !compressionProgress?.done && (
+                  <button
+                    type="button"
+                    onClick={() => runPdfCompression(deckFile)}
+                    disabled={compressingPdf}
+                    className="px-3 py-1.5 rounded-lg bg-[#B4442E] text-white hover:bg-[#933420] text-xs font-mono transition-all flex items-center gap-1.5 shadow-2xs"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{compressingPdf ? "Mengompresi..." : "⚡ Kompresi ke < 20 MB"}</span>
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Alternatif Link Online */}
             <div className="space-y-1">
@@ -583,7 +698,9 @@ const ProjectForm = ({
               <div className="flex items-center justify-between pt-2 border-t border-[#D8CFBE]/60 text-xs font-mono">
                 <div className="flex items-center gap-2 text-[#1E3B2F]">
                   <Check className="w-3.5 h-3.5 text-[#7F8C6A]" />
-                  <span>Presentasi PDF Terpasang</span>
+                  <span>
+                    {deckFile ? `PDF Terpasang (${((deckFile.size) / (1024 * 1024)).toFixed(2)} MB)` : "Presentasi PDF Terpasang"}
+                  </span>
                 </div>
                 <button
                   type="button"
@@ -687,14 +804,29 @@ export default function Projects() {
   }, []);
 
   const uploadFileToStorage = async (f, prefix = "proj") => {
+    let fileToUpload = f;
+    const isPdf = f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf");
+
+    // Auto-compress if PDF > 20 MB before pushing to storage
+    if (isPdf && f.size > 20 * 1024 * 1024) {
+      try {
+        const comp = await compressPdfIfNeeded(f, { targetMaxBytes: 20 * 1024 * 1024 });
+        if (comp.wasCompressed) {
+          fileToUpload = comp.file;
+        }
+      } catch (e) {
+        console.warn("Storage auto-compress fallback:", e);
+      }
+    }
+
     try {
-      const sanitizedName = f.name.replace(/[^a-zA-Z0-9.-]/g, "_");
+      const sanitizedName = fileToUpload.name.replace(/[^a-zA-Z0-9.-]/g, "_");
       const fileName = `${prefix}-${Date.now()}-${sanitizedName}`;
 
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from("project-images")
-        .upload(fileName, f, {
-          contentType: f.type || (f.name.endsWith(".pdf") ? "application/pdf" : "image/jpeg"),
+        .upload(fileName, fileToUpload, {
+          contentType: fileToUpload.type || (fileToUpload.name.endsWith(".pdf") ? "application/pdf" : "image/jpeg"),
           upsert: true,
         });
 
@@ -712,7 +844,7 @@ export default function Projects() {
     const reader = new FileReader();
     return new Promise((resolve) => {
       reader.onload = () => resolve(reader.result);
-      reader.readAsDataURL(f);
+      reader.readAsDataURL(fileToUpload);
     });
   };
 
