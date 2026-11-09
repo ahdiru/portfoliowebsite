@@ -14,6 +14,9 @@ import {
   Presentation,
   Check,
   Sparkles,
+  ChevronLeft,
+  ChevronRight,
+  GripVertical,
 } from "lucide-react";
 import Swal from "sweetalert2";
 import { convertPdfFirstPageToImage, extractPdfPresentationDetails, dataUrlToFile } from "../../utils/pdfToImage";
@@ -83,15 +86,80 @@ const cleanProjectFeatures = (features) => {
   );
 };
 
-const ProjectCard = ({ project, onDelete, onEdit }) => {
+const ProjectCard = ({
+  project,
+  index,
+  total,
+  onMove,
+  onDelete,
+  onEdit,
+  isDragging,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+}) => {
   const [imgLoaded, setImgLoaded] = useState(false);
   const pdfDeck = parseProjectPdf(project);
   const displayFeatures = cleanProjectFeatures(project.Features);
 
   return (
-    <Card>
-      <div className="p-4 flex flex-col h-full">
-        {project.Img && (
+    <div
+      draggable
+      onDragStart={(e) => onDragStart && onDragStart(e, index)}
+      onDragOver={(e) => onDragOver && onDragOver(e, index)}
+      onDrop={(e) => onDrop && onDrop(e, index)}
+      onDragEnd={onDragEnd}
+      className={`transition-all duration-200 ${
+        isDragging ? "opacity-30 scale-95" : "opacity-100"
+      }`}
+    >
+      <Card className="h-full hover:border-[#7F8C6A] transition-colors">
+        <div className="p-4 flex flex-col h-full">
+          {/* Top Position Bar & Reorder Stepper */}
+          <div className="flex items-center justify-between mb-3 pb-2.5 border-b border-[#D8CFBE]/60">
+            <div className="flex items-center gap-1.5 bg-[#EDE7DA] px-2 py-1 rounded-lg border border-[#D8CFBE]">
+              <GripVertical
+                className="w-3.5 h-3.5 text-[#7F8C6A] cursor-grab active:cursor-grabbing shrink-0"
+                title="Tahan & tarik kartu untuk memindahkan urutan proyek"
+              />
+              <span className="text-[11px] font-mono font-bold text-[#1E3B2F]">
+                Posisi #{index + 1}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => onMove(index, index - 1)}
+                disabled={index === 0}
+                className={`p-1 rounded-lg border text-xs font-mono transition-all flex items-center justify-center ${
+                  index === 0
+                    ? "border-transparent text-[#5A6650]/30 cursor-not-allowed"
+                    : "border-[#D8CFBE] bg-[#EDE7DA] text-[#1E3B2F] hover:bg-[#1E3B2F] hover:text-[#F5F0E6] cursor-pointer shadow-2xs"
+                }`}
+                title="Pindah ke posisi sebelumnya (kiri / atas)"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onMove(index, index + 1)}
+                disabled={index === total - 1}
+                className={`p-1 rounded-lg border text-xs font-mono transition-all flex items-center justify-center ${
+                  index === total - 1
+                    ? "border-transparent text-[#5A6650]/30 cursor-not-allowed"
+                    : "border-[#D8CFBE] bg-[#EDE7DA] text-[#1E3B2F] hover:bg-[#1E3B2F] hover:text-[#F5F0E6] cursor-pointer shadow-2xs"
+                }`}
+                title="Pindah ke posisi berikutnya (kanan / bawah)"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {project.Img && (
           <div className="relative w-full aspect-[16/8] rounded-xl mb-3 border border-[#D8CFBE]/60 overflow-hidden bg-[#EDE7DA]">
             {!imgLoaded && (
               <div className="w-full h-full animate-pulse bg-[#EDE7DA]" />
@@ -198,6 +266,7 @@ const ProjectCard = ({ project, onDelete, onEdit }) => {
         </div>
       </div>
     </Card>
+  </div>
   );
 };
 
@@ -766,6 +835,7 @@ export default function Projects() {
   const [showCreate, setShowCreate] = useState(false);
   const [editProject, setEditProject] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [draggedIndex, setDraggedIndex] = useState(null);
 
   const getLocalProjects = () => {
     try {
@@ -804,11 +874,19 @@ export default function Projects() {
       const { data, error } = await supabase
         .from("projects")
         .select("*")
+        .order("order_index", { ascending: true })
         .order("created_at", { ascending: false });
 
       if (error) {
         console.warn("Supabase fetch error, fallback to local:", error);
-        setProjects(getLocalProjects());
+        const local = getLocalProjects();
+        local.sort((a, b) => {
+          const ordA = a.order_index !== undefined && a.order_index !== null ? a.order_index : 9999;
+          const ordB = b.order_index !== undefined && b.order_index !== null ? b.order_index : 9999;
+          if (ordA !== ordB) return ordA - ordB;
+          return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+        });
+        setProjects(local);
       } else {
         const local = getLocalProjects();
         const merged = [...(data || [])];
@@ -817,14 +895,75 @@ export default function Projects() {
             merged.push(loc);
           }
         });
+        merged.sort((a, b) => {
+          const ordA = a.order_index !== undefined && a.order_index !== null ? a.order_index : 9999;
+          const ordB = b.order_index !== undefined && b.order_index !== null ? b.order_index : 9999;
+          if (ordA !== ordB) return ordA - ordB;
+          return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+        });
         setProjects(merged);
         safeSetLocalStorage("projects", merged);
       }
     } catch (e) {
-      setProjects(getLocalProjects());
+      const local = getLocalProjects();
+      setProjects(local);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleMoveProject = async (fromIndex, toIndex) => {
+    if (toIndex < 0 || toIndex >= projects.length || fromIndex === toIndex) return;
+
+    const reordered = [...projects];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
+
+    const updated = reordered.map((item, idx) => ({
+      ...item,
+      order_index: idx,
+    }));
+
+    // Optimistic UI update
+    setProjects(updated);
+    saveLocalProjects(updated);
+
+    // Persist to Supabase
+    try {
+      const updatePromises = updated.map((p) => {
+        if (p.id && (typeof p.id === "number" || !String(p.id).startsWith("local_"))) {
+          return supabase
+            .from("projects")
+            .update({ order_index: p.order_index })
+            .eq("id", p.id);
+        }
+        return Promise.resolve();
+      });
+      await Promise.all(updatePromises);
+    } catch (err) {
+      console.warn("Gagal memperbarui urutan ke Supabase:", err);
+    }
+  };
+
+  const handleDragStart = (e, index) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e, index) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = (e, targetIndex) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === targetIndex) return;
+    handleMoveProject(draggedIndex, targetIndex);
+    setDraggedIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
   };
 
   useEffect(() => {
@@ -957,6 +1096,7 @@ export default function Projects() {
           Features: features,
           Link: form.Link,
           Github: form.Github,
+          order_index: 0,
         }).select();
 
         if (!insertError && insertedData) {
@@ -980,6 +1120,7 @@ export default function Projects() {
         Link: form.Link,
         Github: form.Github,
         PdfUrl: pdfUrl,
+        order_index: 0,
         created_at: new Date().toISOString(),
       };
 
@@ -1222,12 +1363,20 @@ export default function Projects() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
-          {projects.map((project) => (
+          {projects.map((project, index) => (
             <ProjectCard
               key={project.id}
               project={project}
+              index={index}
+              total={projects.length}
+              onMove={handleMoveProject}
               onDelete={deleteProject}
               onEdit={setEditProject}
+              isDragging={draggedIndex === index}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+              onDragEnd={handleDragEnd}
             />
           ))}
         </div>

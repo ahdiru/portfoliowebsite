@@ -88,7 +88,11 @@ export default function FullWidthTabs() {
   const fetchData = useCallback(async () => {
     try {
       const [projectsResponse, certificatesResponse] = await Promise.all([
-        supabase.from("projects").select("*").order('id', { ascending: false }),
+        supabase
+          .from("projects")
+          .select("*")
+          .order("order_index", { ascending: true })
+          .order("created_at", { ascending: false }),
         supabase.from("certificates").select("*").order('id', { ascending: false }), 
       ]);
 
@@ -106,6 +110,14 @@ export default function FullWidthTabs() {
           projectData = [...projectData, ...parsed.filter(p => !projectData.some(c => c.id === p.id))];
         }
       } catch (e) {}
+
+      // Sort projectData based on order_index ascending, fallback created_at descending
+      projectData.sort((a, b) => {
+        const ordA = a.order_index !== undefined && a.order_index !== null ? a.order_index : 9999;
+        const ordB = b.order_index !== undefined && b.order_index !== null ? b.order_index : 9999;
+        if (ordA !== ordB) return ordA - ordB;
+        return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+      });
 
       // Merge local fallback certificates
       try {
