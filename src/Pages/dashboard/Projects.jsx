@@ -19,6 +19,7 @@ import Swal from "sweetalert2";
 import { convertPdfFirstPageToImage, extractPdfPresentationDetails, dataUrlToFile } from "../../utils/pdfToImage";
 import { compressPdfIfNeeded } from "../../utils/pdfCompressor";
 import { savePdfToLocalDb, resolvePdfUrl } from "../../utils/pdfStorage";
+import { cleanLocalStorageQuota, safeSetLocalStorage } from "../../utils/storageCleaner";
 
 const Card = ({ children, className = "" }) => (
   <div className={`relative bg-[#FFFFFF] border border-[#D8CFBE] rounded-2xl shadow-xs overflow-hidden ${className}`}>
@@ -264,19 +265,21 @@ const ProjectForm = ({
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
-  // Compression helper
-  const runPdfCompression = async (targetFile) => {
-    if (!targetFile || targetFile.size <= 20 * 1024 * 1024) return targetFile;
+  // Compression helper targeting 1 - 2 MB
+  const runPdfCompression = async (targetFile, forced = false) => {
+    if (!targetFile) return targetFile;
+    if (!forced && targetFile.size <= 2 * 1024 * 1024) return targetFile;
+
     setCompressingPdf(true);
     setCompressionProgress({
       percent: 5,
-      stage: `Memulai kompresi retina (asli ${(targetFile.size / (1024 * 1024)).toFixed(1)} MB)...`,
+      stage: `Memulai kompresi ke 1 - 2 MB (asli ${(targetFile.size / (1024 * 1024)).toFixed(1)} MB)...`,
       done: false,
     });
 
     try {
       const res = await compressPdfIfNeeded(targetFile, {
-        targetMaxBytes: 20 * 1024 * 1024,
+        targetMaxBytes: Math.round(1.8 * 1024 * 1024),
         onProgress: (p) => setCompressionProgress({ ...p, done: false }),
       });
 
@@ -293,8 +296,8 @@ const ProjectForm = ({
           toast: true,
           position: "top-end",
           icon: "success",
-          title: "⚡ Kompresi PDF Selesai!",
-          html: `<div style="font-size:12px;color:#F5F0E6;">Ukuran berkas berhasil ditekan ke <b>${(res.compressedSize / (1024 * 1024)).toFixed(2)} MB</b> (&le; 20 MB) dengan ketajaman visual tetap terjaga.</div>`,
+          title: "⚡ Kompresi PDF 1-2 MB Selesai!",
+          html: `<div style="font-size:12px;color:#F5F0E6;">Ukuran berkas berhasil ditekan ke <b>${(res.compressedSize / (1024 * 1024)).toFixed(2)} MB</b> (1-2 MB) dengan teks & desain tetap tajam.</div>`,
           timer: 3500,
           showConfirmButton: false,
           timerProgressBar: true,
@@ -385,8 +388,8 @@ const ProjectForm = ({
         color: "#F5F0E6",
       });
 
-      // 2. AUTO-COMPRESS IF > 20 MB (e.g. 76.94 MB)
-      if (file.size > 20 * 1024 * 1024) {
+      // 2. AUTO-COMPRESS IF > 2 MB (Target 1 - 2 MB)
+      if (file.size > 2 * 1024 * 1024) {
         await runPdfCompression(file);
       } else {
         setCompressionProgress(null);
@@ -615,13 +618,13 @@ const ProjectForm = ({
                     {deckFile ? (
                       compressionProgress?.done ? (
                         <span className="text-[#1E3B2F] font-bold">
-                          ✅ Terkompresi: {compressionProgress.info} • Kualitas Retina
+                          ✅ Terkompresi: {compressionProgress.info} • Ringan & Cepat (1-2 MB)
                         </span>
                       ) : (
-                        `${(deckFile.size / (1024 * 1024)).toFixed(2)} MB • ${deckFile.size > 20 * 1024 * 1024 ? "Perlu Kompresi (< 20 MB)" : "Siap diunggah"}`
+                        `${(deckFile.size / (1024 * 1024)).toFixed(2)} MB • ${deckFile.size > 2 * 1024 * 1024 ? "Perlu Kompresi (Target 1-2 MB)" : "Ukuran Ringan (≤ 2 MB)"}`
                       )
                     ) : (
-                      "Mendukung format .pdf slide deck (Maksimal 20 MB)"
+                      "Mendukung format .pdf slide deck (Target kompresi 1 - 2 MB)"
                     )}
                   </p>
                 </div>
@@ -644,7 +647,7 @@ const ProjectForm = ({
                 <div className="flex items-center justify-between text-xs font-mono text-[#1E3B2F]">
                   <span className="font-semibold flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-[#C8B48A] animate-pulse" />
-                    <span>Mengompresi PDF (Target &le; 20 MB)...</span>
+                    <span>Mengompresi PDF (Target 1 - 2 MB)...</span>
                   </span>
                   <span className="font-bold">{compressionProgress.percent}%</span>
                 </div>
@@ -673,15 +676,15 @@ const ProjectForm = ({
                   <span>{isExtractingPdf ? "Menganalisis..." : "✨ Auto-Fill Form dari PDF ini"}</span>
                 </button>
 
-                {deckFile.size > 20 * 1024 * 1024 && !compressionProgress?.done && (
+                {deckFile.size > 2 * 1024 * 1024 && !compressionProgress?.done && (
                   <button
                     type="button"
-                    onClick={() => runPdfCompression(deckFile)}
+                    onClick={() => runPdfCompression(deckFile, true)}
                     disabled={compressingPdf}
                     className="px-3 py-1.5 rounded-lg bg-[#B4442E] text-white hover:bg-[#933420] text-xs font-mono transition-all flex items-center gap-1.5 shadow-2xs"
                   >
                     <Upload className="w-3.5 h-3.5" />
-                    <span>{compressingPdf ? "Mengompresi..." : "⚡ Kompresi ke < 20 MB"}</span>
+                    <span>{compressingPdf ? "Mengompresi..." : "⚡ Kompresi ke 1 - 2 MB"}</span>
                   </button>
                 )}
               </div>
@@ -777,7 +780,7 @@ export default function Projects() {
     try {
       const sanitized = items.map((p) => {
         let safeImg = p.Img || "";
-        if (safeImg.startsWith("data:image/") && safeImg.length > 500000) {
+        if (typeof safeImg === "string" && safeImg.startsWith("data:image/") && safeImg.length > 50000) {
           safeImg = "";
         }
         return {
@@ -786,8 +789,8 @@ export default function Projects() {
         };
       });
 
-      localStorage.setItem("portfolio_local_projects", JSON.stringify(sanitized));
-      localStorage.setItem("projects", JSON.stringify(sanitized));
+      safeSetLocalStorage("portfolio_local_projects", sanitized);
+      safeSetLocalStorage("projects", sanitized);
       window.dispatchEvent(new Event("portfolioProjectsUpdated"));
       window.dispatchEvent(new Event("storage"));
     } catch (e) {
@@ -815,7 +818,7 @@ export default function Projects() {
           }
         });
         setProjects(merged);
-        localStorage.setItem("projects", JSON.stringify(merged));
+        safeSetLocalStorage("projects", merged);
       }
     } catch (e) {
       setProjects(getLocalProjects());
@@ -825,6 +828,7 @@ export default function Projects() {
   };
 
   useEffect(() => {
+    cleanLocalStorageQuota();
     fetchProjects();
     window.addEventListener("portfolioProjectsUpdated", fetchProjects);
     return () => window.removeEventListener("portfolioProjectsUpdated", fetchProjects);
@@ -834,10 +838,10 @@ export default function Projects() {
     let fileToUpload = f;
     const isPdf = f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf");
 
-    // Auto-compress if PDF > 18 MB before pushing to storage
-    if (isPdf && f.size > 18 * 1024 * 1024) {
+    // Auto-compress if PDF > 2 MB before pushing to storage (target 1-2 MB)
+    if (isPdf && f.size > 2 * 1024 * 1024) {
       try {
-        const comp = await compressPdfIfNeeded(f, { targetMaxBytes: 18 * 1024 * 1024 });
+        const comp = await compressPdfIfNeeded(f, { targetMaxBytes: Math.round(1.8 * 1024 * 1024) });
         if (comp.wasCompressed) {
           fileToUpload = comp.file;
         }
@@ -870,15 +874,15 @@ export default function Projects() {
     }
 
     // SAFE FALLBACK: Never return giant base64 data URLs!
-    // For PDFs: store in browser IndexedDB (multi-gigabyte capacity)
+    // For PDFs: store in browser IndexedDB (multi-gigabyte capacity, zero quota issues)
     if (isPdf) {
       const localId = `pdf_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       await savePdfToLocalDb(localId, fileToUpload);
       return `indexeddb:${localId}`;
     }
 
-    // For images under 500KB: return data URL fallback
-    if (fileToUpload.size < 500 * 1024) {
+    // For images under 150KB: return data URL fallback
+    if (fileToUpload.size < 150 * 1024) {
       const reader = new FileReader();
       return new Promise((resolve) => {
         reader.onload = () => resolve(reader.result);

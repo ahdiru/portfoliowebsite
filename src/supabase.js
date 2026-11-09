@@ -10,4 +10,12 @@ if (!supabaseUrl || !supabaseKey) {
   throw new Error("Supabase URL and Anon Key are required. Check your .env file and ensure they are prefixed with VITE_ and the dev server was restarted.");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    // Custom lock function avoids browser Navigator LockManager deadlocks across tabs/reloads
+    lock: (name, acquireTimeout, fn) => fn(),
+  },
+});

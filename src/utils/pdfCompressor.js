@@ -6,15 +6,17 @@ if (typeof window !== "undefined" && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
   pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 }
 
-const MAX_TARGET_BYTES = 20 * 1024 * 1024; // 20 MB
+// Target 1 - 2 MB (default ~1.8 MB) sesuai permintaan Paduka Dane
+export const TARGET_MAX_BYTES_LITE = Math.round(1.8 * 1024 * 1024); // ~1.8 MB
+export const TARGET_MAX_BYTES_STANDARD = 5 * 1024 * 1024; // 5 MB
 
 /**
- * Compresses a PDF file client-side if it exceeds targetMaxBytes (default 20MB)
- * while preserving retina visual sharpness.
+ * Compresses a PDF file client-side to target 1 - 2 MB (or custom target)
+ * while preserving clear typography, layout, and image fidelity.
  *
  * @param {File | Blob} file Original PDF file
  * @param {Object} [options]
- * @param {number} [options.targetMaxBytes=20971520] Target maximum size in bytes (20MB)
+ * @param {number} [options.targetMaxBytes=1887436] Target maximum size in bytes (default: ~1.8MB)
  * @param {Function} [options.onProgress] Callback with { percent, stage, current, total }
  * @returns {Promise<{
  *   file: File,
@@ -26,13 +28,13 @@ const MAX_TARGET_BYTES = 20 * 1024 * 1024; // 20 MB
  */
 export async function compressPdfIfNeeded(file, options = {}) {
   const {
-    targetMaxBytes = MAX_TARGET_BYTES,
+    targetMaxBytes = TARGET_MAX_BYTES_LITE,
     onProgress = () => {},
   } = options;
 
   const originalSize = file.size;
 
-  // If already under target (20MB), no compression needed
+  // If already under target, no compression needed
   if (originalSize <= targetMaxBytes) {
     return {
       file,
@@ -43,7 +45,7 @@ export async function compressPdfIfNeeded(file, options = {}) {
     };
   }
 
-  onProgress({ percent: 5, stage: "Membaca dokumen PDF...", current: 0, total: 1 });
+  onProgress({ percent: 5, stage: "Membaca berkas PDF...", current: 0, total: 1 });
 
   try {
     const arrayBuffer = await file.arrayBuffer();
@@ -53,25 +55,26 @@ export async function compressPdfIfNeeded(file, options = {}) {
 
     onProgress({
       percent: 10,
-      stage: `Memproses ${numPages} slide beresolusi tinggi...`,
+      stage: `Memproses ${numPages} slide ke target 1 - 2 MB...`,
       current: 0,
       total: numPages,
     });
 
     const newPdfDoc = await PDFDocument.create();
 
-    // Determine scale & quality based on total pages and original size
-    // For 70MB+ decks, scale 1.6-1.8 with 0.82 JPEG quality maintains 1500px+ resolution
-    // with near-lossless clarity while shrinking size by 75-85%.
-    let renderScale = 1.6;
-    let jpegQuality = 0.82;
+    // Dynamically calculate render resolution and JPEG quality to guarantee size <= 2MB
+    let renderScale = 1.25;
+    let jpegQuality = 0.70;
 
-    if (numPages > 30) {
-      renderScale = 1.35;
-      jpegQuality = 0.78;
-    } else if (numPages > 15) {
-      renderScale = 1.5;
-      jpegQuality = 0.80;
+    if (numPages > 35) {
+      renderScale = 0.95;
+      jpegQuality = 0.58;
+    } else if (numPages > 20) {
+      renderScale = 1.1;
+      jpegQuality = 0.64;
+    } else if (numPages <= 8) {
+      renderScale = 1.4;
+      jpegQuality = 0.76;
     }
 
     const canvas = document.createElement("canvas");
@@ -93,7 +96,7 @@ export async function compressPdfIfNeeded(file, options = {}) {
         viewport: viewport,
       }).promise;
 
-      // Convert to compressed JPEG data URL
+      // Convert to compressed JPEG
       const jpegDataUrl = canvas.toDataURL("image/jpeg", jpegQuality);
       const jpegImage = await newPdfDoc.embedJpg(jpegDataUrl);
 
@@ -120,12 +123,16 @@ export async function compressPdfIfNeeded(file, options = {}) {
       });
     }
 
-    onProgress({ percent: 92, stage: "Menyusun berkas PDF teroptimasi...", current: numPages, total: numPages });
+    onProgress({
+      percent: 92,
+      stage: "Menyusun berkas PDF teroptimasi (1-2 MB)...",
+      current: numPages,
+      total: numPages,
+    });
 
     const compressedBytes = await newPdfDoc.save();
     let finalBlob = new Blob([compressedBytes], { type: "application/pdf" });
 
-    // Fallback check: If still slightly > 20MB, we can accept it or re-clamp, but 30 slides * 300KB is ~9MB.
     const compressedSize = finalBlob.size;
     const cleanFileName = file.name || "presentation.pdf";
     const compressedFile = new File([finalBlob], cleanFileName, {
@@ -133,7 +140,12 @@ export async function compressPdfIfNeeded(file, options = {}) {
       lastModified: Date.now(),
     });
 
-    onProgress({ percent: 100, stage: "Selesai dikompresi!", current: numPages, total: numPages });
+    onProgress({
+      percent: 100,
+      stage: "Selesai! Berkas terkompresi ke 1 - 2 MB.",
+      current: numPages,
+      total: numPages,
+    });
 
     return {
       file: compressedFile,
@@ -146,8 +158,7 @@ export async function compressPdfIfNeeded(file, options = {}) {
       ).toFixed(0)}%)`,
     };
   } catch (error) {
-    console.error("PDF compression encountered an error:", error);
-    // If client compression fails for any unexpected reason, return original file safely
+    console.error("PDF compression error:", error);
     return {
       file,
       originalSize,

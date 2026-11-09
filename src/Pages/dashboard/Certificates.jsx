@@ -4,6 +4,7 @@ import { Award, Upload, Trash2, Plus, ExternalLink, Database } from 'lucide-reac
 import Swal from 'sweetalert2';
 import { isPdfUrl } from '../../components/Certificate';
 import { convertPdfFirstPageToImage } from '../../utils/pdfToImage';
+import { safeSetLocalStorage, cleanLocalStorageQuota } from '../../utils/storageCleaner';
 
 const Card = ({ children, className = '' }) => (
   <div className={`bg-[#FFFFFF] border border-[#D8CFBE] rounded-2xl shadow-xs overflow-hidden ${className}`}>
@@ -28,7 +29,7 @@ const getLocalCerts = () => {
 
 const saveLocalCerts = (certs) => {
   try {
-    localStorage.setItem('portfolio_local_certificates', JSON.stringify(certs));
+    safeSetLocalStorage('portfolio_local_certificates', certs);
     window.dispatchEvent(new Event('portfolioCertificatesUpdated'));
   } catch (e) {
     console.error(e);
@@ -135,7 +136,7 @@ export default function Certificates() {
         setHasSupabaseTable(false);
         const local = getLocalCerts();
         setCerts(local);
-        localStorage.setItem('certificates', JSON.stringify(local));
+        safeSetLocalStorage('certificates', local);
       } else {
         setHasSupabaseTable(true);
         const local = getLocalCerts();
@@ -146,7 +147,7 @@ export default function Certificates() {
           }
         });
         setCerts(merged);
-        localStorage.setItem('certificates', JSON.stringify(merged));
+        safeSetLocalStorage('certificates', merged);
       }
     } catch (e) {
       console.warn('Network or Supabase error:', e);

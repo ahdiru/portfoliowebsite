@@ -15,6 +15,7 @@ import "aos/dist/aos.css";
 import Certificate from "../components/Certificate";
 import { Code, Award, Boxes, ChevronDown, ChevronUp } from "lucide-react";
 import { useTechStacks } from "../utils/techStackData";
+import { safeSetLocalStorage } from "../utils/storageCleaner";
 
 const ToggleButton = ({ onClick, isShowingMore }) => (
   <button
@@ -118,8 +119,8 @@ export default function FullWidthTabs() {
       setProjects(projectData);
       setCertificates(certificateData);
 
-      localStorage.setItem("projects", JSON.stringify(projectData));
-      localStorage.setItem("certificates", JSON.stringify(certificateData));
+      safeSetLocalStorage("projects", projectData);
+      safeSetLocalStorage("certificates", certificateData);
     } catch (error) {
       console.error("Error fetching data:", error);
       try {
