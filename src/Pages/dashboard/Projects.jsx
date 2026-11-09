@@ -13,9 +13,10 @@ import {
   FileText,
   Presentation,
   Check,
+  Sparkles,
 } from "lucide-react";
 import Swal from "sweetalert2";
-import { convertPdfFirstPageToImage } from "../../utils/pdfToImage";
+import { convertPdfFirstPageToImage, extractPdfPresentationDetails } from "../../utils/pdfToImage";
 
 const Card = ({ children, className = "" }) => (
   <div className={`relative bg-[#FFFFFF] border border-[#D8CFBE] rounded-2xl shadow-xs overflow-hidden ${className}`}>
@@ -248,33 +249,113 @@ const ProjectForm = ({
   const [deckFile, setDeckFile] = useState(null);
   const [deckPreview, setDeckPreview] = useState(initialPdf || null);
   const [deckConverting, setDeckConverting] = useState(false);
+  const [isExtractingPdf, setIsExtractingPdf] = useState(false);
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  // Auto-Fill Form from Presentation PDF
+  const processPdfAutoFill = async (file) => {
+    if (!file) return;
+    setIsExtractingPdf(true);
+    setCoverConverting(true);
+    setDeckConverting(true);
+
+    try {
+      const details = await extractPdfPresentationDetails(file);
+
+      // Auto fill Cover
+      if (details.coverImage) {
+        setCoverPreview(details.coverImage);
+        setCoverFile(file);
+      }
+
+      // Auto fill Deck
+      setDeckFile(file);
+      setDeckPreview(details.coverImage);
+
+      // Auto fill Form Fields
+      setForm((prev) => {
+        // If title is empty or placeholder, use detected
+        const currentTitleIsDefault = !prev.Title || prev.Title.trim().length === 0;
+        const newTitle = currentTitleIsDefault ? details.detectedTitle : prev.Title;
+
+        // Description
+        const currentDescIsDefault = !prev.Description || prev.Description.trim().length === 0;
+        let newDesc = prev.Description;
+        if (currentDescIsDefault && details.detectedDescription) {
+          newDesc = details.detectedDescription;
+        }
+
+        // Tech Stack
+        const currentTech = prev.TechStack
+          ? prev.TechStack.split(",").map((s) => s.trim()).filter(Boolean)
+          : [];
+        const mergedTech = Array.from(new Set([...currentTech, ...(details.detectedTech || [])]));
+
+        // Features
+        const currentFeatures = prev.Features
+          ? prev.Features.split(",").map((s) => s.trim()).filter(Boolean)
+          : [];
+        const mergedFeatures = Array.from(new Set([...currentFeatures, ...(details.detectedFeatures || [])]));
+
+        // Links
+        const newGithub = (!prev.Github && details.detectedGithub) ? details.detectedGithub : prev.Github;
+        const newLink = (!prev.Link && details.detectedLive) ? details.detectedLive : prev.Link;
+
+        return {
+          ...prev,
+          Title: newTitle || prev.Title,
+          Description: newDesc || prev.Description,
+          TechStack: mergedTech.join(", "),
+          Features: mergedFeatures.join(", "),
+          Github: newGithub || prev.Github,
+          Link: newLink || prev.Link,
+        };
+      });
+
+      Swal.fire({
+        toast: true,
+        position: "top-end",
+        icon: "success",
+        title: "✨ PDF Terdeteksi Otomatis!",
+        html: `<div style="text-align: left; font-size: 12px; line-height: 1.5; color: #F5F0E6;">
+          <b>Judul:</b> ${details.detectedTitle || "-"}<br/>
+          <b>Tech Stack:</b> ${details.detectedTech?.length ? details.detectedTech.join(", ") : "Terdeteksi"}<br/>
+          <b>Slide 1:</b> Dijadikan Cover & Deck Presentasi
+        </div>`,
+        timer: 4000,
+        showConfirmButton: false,
+        timerProgressBar: true,
+        background: "#1E3B2F",
+        color: "#F5F0E6",
+      });
+    } catch (err) {
+      console.error("Auto detect PDF failed:", err);
+      // Fallback: at least extract cover image
+      try {
+        const coverImg = await convertPdfFirstPageToImage(file, 2.0);
+        setCoverPreview(coverImg);
+        setCoverFile(file);
+        setDeckFile(file);
+        setDeckPreview(coverImg);
+      } catch (e) {}
+    } finally {
+      setIsExtractingPdf(false);
+      setCoverConverting(false);
+      setDeckConverting(false);
+    }
+  };
 
   // Handle Cover Upload (Supports Images & PDF presentations)
   const handleCoverChange = async (e) => {
     const f = e.target.files[0];
     if (!f) return;
-    setCoverFile(f);
 
     const isPdf = f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf");
     if (isPdf) {
-      setCoverConverting(true);
-      try {
-        const slideOne = await convertPdfFirstPageToImage(f, 2.5);
-        setCoverPreview(slideOne);
-        // Jika belum ada deckFile terpisah, jadikan juga berkas ini sebagai presentation deck
-        if (!deckFile && !form.PdfUrl) {
-          setDeckFile(f);
-          setDeckPreview(slideOne);
-        }
-      } catch (err) {
-        console.error("Failed to render PDF cover slide:", err);
-        setCoverPreview(URL.createObjectURL(f));
-      } finally {
-        setCoverConverting(false);
-      }
+      await processPdfAutoFill(f);
     } else {
+      setCoverFile(f);
       setCoverPreview(URL.createObjectURL(f));
     }
   };
@@ -283,18 +364,7 @@ const ProjectForm = ({
   const handleDeckChange = async (e) => {
     const f = e.target.files[0];
     if (!f) return;
-    setDeckFile(f);
-
-    setDeckConverting(true);
-    try {
-      const slideThumb = await convertPdfFirstPageToImage(f, 2.0);
-      setDeckPreview(slideThumb);
-    } catch (err) {
-      console.warn("PDF thumbnail rendering:", err);
-      setDeckPreview(URL.createObjectURL(f));
-    } finally {
-      setDeckConverting(false);
-    }
+    await processPdfAutoFill(f);
   };
 
   const handleClearDeck = () => {
@@ -311,6 +381,52 @@ const ProjectForm = ({
       }}
       className="p-5 sm:p-6 space-y-4"
     >
+      {/* ⚡ AI Auto-Fill dari Berkas PDF */}
+      <div className="p-3.5 sm:p-4 rounded-xl bg-gradient-to-r from-[#EDE7DA] to-[#F5F0E6] border border-[#C8B48A]/70 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-[#1E3B2F] text-[#F5F0E6] shrink-0 shadow-xs">
+            <Sparkles className="w-5 h-5 text-[#C8B48A] animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-xs font-bold text-[#1E3B2F] font-mono">
+                Auto-Fill Cepat dari Dokumen PDF
+              </h4>
+              <span className="px-1.5 py-0.5 rounded text-[10px] bg-[#1E3B2F] text-[#F5F0E6] font-mono font-medium">
+                Auto-Detect
+              </span>
+            </div>
+            <p className="text-xs text-[#5A6650] mt-0.5">
+              Pilih slide presentasi PDF untuk otomatis mengisi Judul, Deskripsi, Tech Stack, & Cover Slide 1.
+            </p>
+          </div>
+        </div>
+
+        <label className="w-full sm:w-auto px-4 py-2 rounded-xl bg-[#1E3B2F] hover:bg-[#2A5241] text-[#F5F0E6] text-xs font-mono font-medium cursor-pointer transition-all shrink-0 flex items-center justify-center gap-2 shadow-xs">
+          {isExtractingPdf ? (
+            <>
+              <div className="w-3.5 h-3.5 border-2 border-[#F5F0E6]/30 border-t-[#F5F0E6] rounded-full animate-spin" />
+              <span>Menganalisis PDF...</span>
+            </>
+          ) : (
+            <>
+              <Upload className="w-3.5 h-3.5 text-[#C8B48A]" />
+              <span>Unggah PDF (Auto-Fill)</span>
+            </>
+          )}
+          <input
+            type="file"
+            accept="application/pdf,.pdf"
+            onChange={(e) => {
+              if (e.target.files?.[0]) {
+                processPdfAutoFill(e.target.files[0]);
+              }
+            }}
+            className="hidden"
+            disabled={isExtractingPdf}
+          />
+        </label>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Title */}
         <div className="sm:col-span-2">
