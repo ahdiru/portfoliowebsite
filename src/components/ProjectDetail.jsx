@@ -16,6 +16,9 @@ import {
   Code,
   FileText,
   Sparkles,
+  Download,
+  X,
+  Loader2,
 } from "lucide-react";
 import Swal from "sweetalert2";
 import { toSlug } from "../utils/slug";
@@ -121,6 +124,68 @@ const ProjectDetails = () => {
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isImageLoaded, setIsImageLoaded] = useState(false);
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [activePdfUrl, setActivePdfUrl] = useState(null);
+  const [isPdfLoading, setIsPdfLoading] = useState(false);
+
+  const handleOpenPdf = async () => {
+    if (!project?.PdfUrl) return;
+    setIsPdfLoading(true);
+    setIsPdfModalOpen(true);
+
+    try {
+      let resolved = project.PdfUrl;
+      if (resolved.startsWith("indexeddb:")) {
+        const localBlobUrl = await resolvePdfUrl(resolved);
+        if (localBlobUrl) {
+          resolved = localBlobUrl;
+        } else {
+          throw new Error("Berkas PDF di penyimpanan lokal tidak dapat dimuat.");
+        }
+      } else if (
+        resolved.includes("docs.google.com/presentation") &&
+        !resolved.includes("/embed")
+      ) {
+        resolved = resolved
+          .replace(/\/edit.*$/, "/embed")
+          .replace(/\/present.*$/, "/embed");
+      }
+      setActivePdfUrl(resolved);
+    } catch (err) {
+      console.error("Gagal membuka PDF:", err);
+      Swal.fire({
+        icon: "error",
+        title: "Gagal Membuka Berkas",
+        text: err.message || "Dokumen PDF presentasi tidak dapat dimuat.",
+        confirmButtonColor: "#1E3B2F",
+        background: "#F5F0E6",
+        color: "#1E3B2F",
+      });
+      setIsPdfModalOpen(false);
+    } finally {
+      setIsPdfLoading(false);
+    }
+  };
+
+  const handleClosePdf = () => {
+    setIsPdfModalOpen(false);
+  };
+
+  useEffect(() => {
+    if (isPdfModalOpen) {
+      document.body.style.overflow = "hidden";
+      const handleKeyDown = (e) => {
+        if (e.key === "Escape") handleClosePdf();
+      };
+      window.addEventListener("keydown", handleKeyDown);
+      return () => {
+        document.body.style.overflow = "unset";
+        window.removeEventListener("keydown", handleKeyDown);
+      };
+    } else {
+      document.body.style.overflow = "unset";
+    }
+  }, [isPdfModalOpen]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -333,22 +398,14 @@ const ProjectDetails = () => {
                 )}
 
                 {project.PdfUrl && (
-                  <a
-                    href={project.PdfUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={async (e) => {
-                      if (project.PdfUrl.startsWith("indexeddb:")) {
-                        e.preventDefault();
-                        const resolved = await resolvePdfUrl(project.PdfUrl);
-                        if (resolved) window.open(resolved, "_blank");
-                      }
-                    }}
-                    className="inline-flex items-center space-x-2 px-5 py-2.5 bg-[#1E3B2F] hover:bg-[#2A5241] text-[#F5F0E6] border border-[#C8B48A]/50 rounded-xl font-mono text-xs font-medium transition-all shadow-xs cursor-pointer"
+                  <button
+                    type="button"
+                    onClick={handleOpenPdf}
+                    className="inline-flex items-center space-x-2 px-5 py-2.5 bg-[#1E3B2F] hover:bg-[#2A5241] text-[#F5F0E6] border border-[#C8B48A]/50 rounded-xl font-mono text-xs font-medium transition-all shadow-xs cursor-pointer group"
                   >
-                    <FileText className="w-4 h-4 text-[#C8B48A]" />
+                    <FileText className="w-4 h-4 text-[#C8B48A] group-hover:scale-110 transition-transform" />
                     <span>View Presentation Deck (PDF)</span>
-                  </a>
+                  </button>
                 )}
               </div>
 
@@ -410,6 +467,104 @@ const ProjectDetails = () => {
           </div>
         </div>
       </div>
+
+      {/* PDF Presentation Deck Viewer Modal */}
+      {isPdfModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Presentation Deck Viewer"
+          className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-[#1E3B2F]/80 backdrop-blur-xs transition-opacity animate-fadeIn"
+          onClick={handleClosePdf}
+        >
+          <div
+            className="relative w-full max-w-6xl h-[92vh] bg-[#FFFFFF] border border-[#D8CFBE] rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 bg-[#EDE7DA] border-b border-[#D8CFBE] shrink-0 gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-[#1E3B2F] text-[#F5F0E6] flex items-center justify-center shrink-0 shadow-xs">
+                  <FileText className="w-4 h-4 text-[#C8B48A]" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xs sm:text-sm font-mono font-bold text-[#1E3B2F] truncate">
+                      {project.Title}
+                    </h3>
+                    <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded-full bg-[#FFFFFF] border border-[#D8CFBE] text-[10px] font-mono font-semibold text-[#7F8C6A]">
+                      Presentation Deck
+                    </span>
+                  </div>
+                  <p className="text-[11px] font-mono text-[#5A6650] truncate">
+                    Dokumen Presentasi / Pitch Deck
+                  </p>
+                </div>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                {activePdfUrl && (
+                  <>
+                    <a
+                      href={activePdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#FFFFFF] hover:bg-[#F5F0E6] border border-[#D8CFBE] text-[#1E3B2F] text-xs font-mono font-medium transition-colors shadow-2xs"
+                      title="Buka dokumen di tab baru"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 text-[#7F8C6A]" />
+                      <span className="hidden sm:inline">Tab Baru</span>
+                    </a>
+                    <a
+                      href={activePdfUrl}
+                      download={`${toSlug(project.Title)}-presentation.pdf`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1E3B2F] hover:bg-[#2A5241] text-[#F5F0E6] text-xs font-mono font-medium transition-colors shadow-2xs"
+                      title="Unduh berkas PDF"
+                    >
+                      <Download className="w-3.5 h-3.5 text-[#C8B48A]" />
+                      <span className="hidden sm:inline">Unduh</span>
+                    </a>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={handleClosePdf}
+                  className="p-1.5 rounded-xl text-[#1E3B2F] hover:bg-[#FFFFFF] border border-transparent hover:border-[#D8CFBE] transition-colors cursor-pointer"
+                  title="Tutup Pratinjau (Esc)"
+                  aria-label="Tutup"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body / PDF Frame */}
+            <div className="relative flex-1 w-full bg-[#F5F0E6] overflow-hidden flex items-center justify-center">
+              {isPdfLoading ? (
+                <div className="text-center space-y-3 p-6">
+                  <Loader2 className="w-8 h-8 text-[#1E3B2F] animate-spin mx-auto" />
+                  <p className="text-xs font-mono font-semibold text-[#1E3B2F]">
+                    Memuat Dokumen Presentasi...
+                  </p>
+                </div>
+              ) : activePdfUrl ? (
+                <iframe
+                  src={`${activePdfUrl}#toolbar=1&navpanes=1&view=FitH`}
+                  title={`${project.Title} Presentation`}
+                  className="w-full h-full border-none bg-white"
+                />
+              ) : (
+                <div className="text-center space-y-3 p-6 max-w-sm">
+                  <p className="text-xs font-mono text-[#5A6650]">
+                    Dokumen presentasi tidak dapat ditampilkan.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };
